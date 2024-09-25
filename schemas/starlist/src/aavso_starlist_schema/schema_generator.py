@@ -1,0 +1,289 @@
+import json
+
+from typing import Annotated, List
+from pydantic import BaseModel, Field
+from stellarphot.settings.aavso_models import AAVSOFilters
+
+
+class PrettyPrintMixin:
+    @classmethod
+    def markdown_table(cls):
+        """
+        Generate a markdown table of the model fields for the AAVSO starlist schema.
+        """
+        rows = ["| Title | JSON Field | Type | Unit | Description | Examples |"]
+        rows.append("| --- | --- | --- | --- | --- | --- |")
+        for name, field_info in cls.model_fields.items():
+            row = (
+                f"| {field_info.title} | {name} | {field_info.annotation.__name__} "
+                f"| {field_info.json_schema_extra['unit']} "
+                f"| {field_info.description} | {field_info.examples[0]} |"
+            )
+            rows.append(row)
+
+        return "\n".join(rows)
+
+
+class StarList(BaseModel, PrettyPrintMixin):
+    """
+    Definition of individual entries in an AAVSO star list.
+    """
+    x: Annotated[
+        float,
+        Field(
+            ge=0,
+            title="X-coordinate",
+            description="X-coordinate of the star center (in pixel coordinates)",
+            unit="pixel",
+            examples=[1206.78]
+        )
+    ]
+    y: Annotated[
+        float,
+        Field(
+            ge=0,
+            title="Y-coordinate",
+            description="Y-coordinate of the star center (in pixel coordinates)",
+            unit="pixel",
+            examples=[620.10]
+        )
+    ]
+    ra: Annotated[
+        float,
+        Field(
+            ge=0,
+            lt=360,
+            title="Right Ascension",
+            description=(
+                "Right Ascension of the star (in decimal degrees) at "
+                "the epoch specified in the metadata"
+            ),
+            unit="degree",
+            examples=[212.56789]
+        )
+    ]
+    dec: Annotated[
+        float,
+        Field(
+            ge=-90,
+            le=90,
+            title="Declination",
+            description=(
+                "Declination of the star (in decimal degrees) at "
+                "the epoch specified in the metadata"
+            ),
+            unit="degree",
+            examples=[-12.12345]
+        )
+    ]
+    tot_flux: Annotated[
+        float,
+        Field(
+            ge=0,
+            title="Star Flux",
+            description="Total integrated counts of the star, background-subtracted",
+            unit="adu",
+            examples=[156700.4]
+        )
+    ]
+    flux_err: Annotated[
+        float,
+        Field(
+            ge=0,
+            title="Flux Error",
+            description="Error in the total integrated counts of the star",
+            unit="adu",
+            examples=[15300.1]
+        )
+    ]
+    bkgd_flux: Annotated[
+        float,
+        Field(
+            ge=0,
+            title="Background counts",
+            description="Background count level in the vicinity of the star",
+            unit="adu / pixel",
+            examples=[1209.45]
+        )
+    ]
+    peak_flux: Annotated[
+        int,
+        Field(
+            ge=0,
+            title="Peak Counts",
+            description="Peak counts of the star",
+            unit="adu",
+            examples=[31454]
+        )
+    ]
+
+
+class SchemaHeader(BaseModel, PrettyPrintMixin):
+    """
+    Definition of the header section of an AAVSO star list schema.
+    """
+    schema_version: Annotated[
+        str,
+        Field(
+            title="Starlist Schema Version",
+            description="An AAVSO-assigned string that identifies the schema version",
+            unit="none",
+            examples=["AA_001"]
+        )
+    ]
+    obs_time: Annotated[
+        str,
+        Field(
+            format="date-time",
+            title="Observation Start Time",
+            unit=None,
+            scale="UTC",
+            description="UTC time at start of observation",
+            examples=["2021-06-15T03:45:00"]
+        )
+    ]
+    site_lat: Annotated[
+        float,
+        Field(
+            ge=-90,
+            le=90,
+            title="Site Latitude",
+            description="Latitude of the observing site",
+            unit="degree",
+            examples=[-41.56896]
+        )
+    ]
+    site_lon: Annotated[
+        float,
+        Field(
+            ge=-180,
+            le=180,
+            title="Site Longitude",
+            description="Longitude of the observing site",
+            unit="degree",
+            examples=[-71.23841]
+        )
+    ]
+    site_elev: Annotated[
+        float,
+        Field(
+            title="Site Elevation",
+            description="Observer's elevation above mean sea level",
+            unit="meter",
+            examples=[211.0]
+        )
+    ]
+    observer: Annotated[
+        str,
+        Field(
+            title="Observer Code",
+            description="AAVSO code of the observer",
+            unit="none",
+            examples=["MMU"]
+        )
+    ]
+    filter: Annotated[
+        AAVSOFilters,
+        Field(
+            title="Filter",
+            description="Filter used for the observation, from https://www.aavso.org/filters",
+            unit="none",
+            examples=[AAVSOFilters.TG]
+        )
+    ]
+    block_filter: Annotated[
+        str,
+        Field(
+            title="Blocking Filter",
+            description="Name of blocking filter used on telescope",
+            unit="none",
+            examples=["UV+IR"]
+        )
+    ]
+    exposure: Annotated[
+        float,
+        Field(
+            ge=0,
+            title="Exposure Time",
+            description="Effective duration of exposure",
+            unit="second",
+            examples=[30.0]
+        )
+    ]
+    tel_manufac: Annotated[
+        str,
+        Field(
+            title="Telescope Manufacturer",
+            description="Name of the telescope manufacturer",
+            unit="none",
+            examples=["Celestron"]
+        )
+    ]
+    tel_model: Annotated[
+        str,
+        Field(
+            title="Telescope Model",
+            description="Model of the telescope",
+            unit="none",
+            examples=["Origin 1"]
+        )
+    ]
+    tel_firmware: Annotated[
+        str,
+        Field(
+            title="Telescope Firmware",
+            description="Firmware version of the telescope",
+            unit="none",
+            examples=["20240817.01"]
+        )
+    ]
+    adc_depth: Annotated[
+        int,
+        Field(
+            ge=0,
+            title="A/D Converter Bit Depth",
+            description="Bit depth of the analog-to-digital converter",
+            unit="bit",
+            examples=[14]
+        )
+    ]
+    largest_usable_adu_value: Annotated[
+        int,
+        Field(
+            ge=0,
+            title="Largest Usable ADU Value",
+            description="Largest usable analog-to-digital unit value",
+            unit="adu",
+            examples=[41000]
+        )
+    ]
+    epoch: Annotated[
+        str,
+        Field(
+            title="Reporting Epoch",
+            description="Epoch of the observation",
+            unit="none",
+            examples=["J2000"]
+        )
+    ]
+    refframe: Annotated[
+        str,
+        Field(
+            title="Coordinate Reference Frame",
+            description="Reference frame of the observation",
+            unit="none",
+            examples=["ICRS"]
+        )
+    ]
+    starlist: Annotated[
+        List[StarList],
+        Field(
+            title="Star List",
+            description="List of stars detected in the image",
+            unit="none",
+            examples=["See StarList"]
+        )
+    ]
+
+if __name__ == "__main__":
+    print(json.dumps(SchemaHeader.model_json_schema(), indent=2))
