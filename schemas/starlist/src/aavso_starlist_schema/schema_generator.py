@@ -34,7 +34,7 @@ class StarList(BaseModel, PrettyPrintMixin):
             ge=0,
             title="X-coordinate",
             description="X-coordinate of the star center (in pixel coordinates)",
-            unit="pixel",
+            json_schema_extra=dict(unit="pixel"),
             examples=[1206.78]
         )
     ]
@@ -44,7 +44,7 @@ class StarList(BaseModel, PrettyPrintMixin):
             ge=0,
             title="Y-coordinate",
             description="Y-coordinate of the star center (in pixel coordinates)",
-            unit="pixel",
+            json_schema_extra=dict(unit="pixel"),
             examples=[620.10]
         )
     ]
@@ -58,7 +58,7 @@ class StarList(BaseModel, PrettyPrintMixin):
                 "Right Ascension of the star (in decimal degrees) at "
                 "the epoch specified in the metadata"
             ),
-            unit="degree",
+            json_schema_extra=dict(unit="degree"),
             examples=[212.56789]
         )
     ]
@@ -72,7 +72,7 @@ class StarList(BaseModel, PrettyPrintMixin):
                 "Declination of the star (in decimal degrees) at "
                 "the epoch specified in the metadata"
             ),
-            unit="degree",
+            json_schema_extra=dict(unit="degree"),
             examples=[-12.12345]
         )
     ]
@@ -82,7 +82,7 @@ class StarList(BaseModel, PrettyPrintMixin):
             ge=0,
             title="Star Flux",
             description="Total integrated counts of the star, background-subtracted",
-            unit="adu",
+            json_schema_extra=dict(unit="adu"),
             examples=[156700.4]
         )
     ]
@@ -92,7 +92,7 @@ class StarList(BaseModel, PrettyPrintMixin):
             ge=0,
             title="Flux Error",
             description="Error in the total integrated counts of the star",
-            unit="adu",
+            json_schema_extra=dict(unit="adu"),
             examples=[15300.1]
         )
     ]
@@ -102,7 +102,7 @@ class StarList(BaseModel, PrettyPrintMixin):
             ge=0,
             title="Background counts",
             description="Background count level in the vicinity of the star",
-            unit="adu / pixel",
+            json_schema_extra=dict(unit="adu / pixel"),
             examples=[1209.45]
         )
     ]
@@ -112,7 +112,7 @@ class StarList(BaseModel, PrettyPrintMixin):
             ge=0,
             title="Peak Counts",
             description="Peak counts of the star",
-            unit="adu",
+            json_schema_extra=dict(unit="adu"),
             examples=[31454]
         )
     ]
@@ -127,17 +127,19 @@ class SchemaHeader(BaseModel, PrettyPrintMixin):
         Field(
             title="Starlist Schema Version",
             description="An AAVSO-assigned string that identifies the schema version",
-            unit="none",
+            json_schema_extra=dict(unit="none"),
             examples=["AA_001"]
         )
     ]
     obs_time: Annotated[
         str,
         Field(
-            format="date-time",
             title="Observation Start Time",
-            unit=None,
-            scale="UTC",
+            json_schema_extra=dict(
+                unit=None,
+                format="date-time",
+                scale="UTC",
+            ),
             description="UTC time at start of observation",
             examples=["2021-06-15T03:45:00"]
         )
@@ -149,7 +151,7 @@ class SchemaHeader(BaseModel, PrettyPrintMixin):
             le=90,
             title="Site Latitude",
             description="Latitude of the observing site",
-            unit="degree",
+            json_schema_extra=dict(unit="degree"),
             examples=[-41.56896]
         )
     ]
@@ -160,7 +162,7 @@ class SchemaHeader(BaseModel, PrettyPrintMixin):
             le=180,
             title="Site Longitude",
             description="Longitude of the observing site",
-            unit="degree",
+            json_schema_extra=dict(unit="degree"),
             examples=[-71.23841]
         )
     ]
@@ -169,7 +171,7 @@ class SchemaHeader(BaseModel, PrettyPrintMixin):
         Field(
             title="Site Elevation",
             description="Observer's elevation above mean sea level",
-            unit="meter",
+            json_schema_extra=dict(unit="meter"),
             examples=[211.0]
         )
     ]
@@ -178,7 +180,7 @@ class SchemaHeader(BaseModel, PrettyPrintMixin):
         Field(
             title="Observer Code",
             description="AAVSO code of the observer",
-            unit="none",
+            json_schema_extra=dict(unit="none"),
             examples=["MMU"]
         )
     ]
@@ -187,7 +189,7 @@ class SchemaHeader(BaseModel, PrettyPrintMixin):
         Field(
             title="Filter",
             description="Filter used for the observation, from https://www.aavso.org/filters",
-            unit="none",
+            json_schema_extra=dict(unit="none"),
             examples=[AAVSOFilters.TG]
         )
     ]
@@ -196,7 +198,7 @@ class SchemaHeader(BaseModel, PrettyPrintMixin):
         Field(
             title="Blocking Filter",
             description="Name of blocking filter used on telescope",
-            unit="none",
+            json_schema_extra=dict(unit="none"),
             examples=["UV+IR"]
         )
     ]
@@ -206,7 +208,7 @@ class SchemaHeader(BaseModel, PrettyPrintMixin):
             ge=0,
             title="Exposure Time",
             description="Effective duration of exposure",
-            unit="second",
+            json_schema_extra=dict(unit="second"),
             examples=[30.0]
         )
     ]
@@ -215,7 +217,7 @@ class SchemaHeader(BaseModel, PrettyPrintMixin):
         Field(
             title="Telescope Manufacturer",
             description="Name of the telescope manufacturer",
-            unit="none",
+            json_schema_extra=dict(unit="none"),
             examples=["Celestron"]
         )
     ]
@@ -224,7 +226,7 @@ class SchemaHeader(BaseModel, PrettyPrintMixin):
         Field(
             title="Telescope Model",
             description="Model of the telescope",
-            unit="none",
+            json_schema_extra=dict(unit="none"),
             examples=["Origin 1"]
         )
     ]
@@ -233,7 +235,7 @@ class SchemaHeader(BaseModel, PrettyPrintMixin):
         Field(
             title="Telescope Firmware",
             description="Firmware version of the telescope",
-            unit="none",
+            json_schema_extra=dict(unit="none"),
             examples=["20240817.01"]
         )
     ]
@@ -243,7 +245,7 @@ class SchemaHeader(BaseModel, PrettyPrintMixin):
             ge=0,
             title="A/D Converter Bit Depth",
             description="Bit depth of the analog-to-digital converter",
-            unit="bit",
+            json_schema_extra=dict(unit="bit"),
             examples=[14]
         )
     ]
@@ -253,7 +255,7 @@ class SchemaHeader(BaseModel, PrettyPrintMixin):
             ge=0,
             title="Largest Usable ADU Value",
             description="Largest usable analog-to-digital unit value",
-            unit="adu",
+            json_schema_extra=dict(unit="adu"),
             examples=[41000]
         )
     ]
@@ -262,7 +264,7 @@ class SchemaHeader(BaseModel, PrettyPrintMixin):
         Field(
             title="Reporting Epoch",
             description="Epoch of the observation",
-            unit="none",
+            json_schema_extra=dict(unit="none"),
             examples=["J2000"]
         )
     ]
@@ -271,7 +273,7 @@ class SchemaHeader(BaseModel, PrettyPrintMixin):
         Field(
             title="Coordinate Reference Frame",
             description="Reference frame of the observation",
-            unit="none",
+            json_schema_extra=dict(unit="none"),
             examples=["ICRS"]
         )
     ]
@@ -280,7 +282,7 @@ class SchemaHeader(BaseModel, PrettyPrintMixin):
         Field(
             title="Star List",
             description="List of stars detected in the image",
-            unit="none",
+            json_schema_extra=dict(unit="none"),
             examples=["See StarList"]
         )
     ]
