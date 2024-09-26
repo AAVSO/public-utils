@@ -4,6 +4,8 @@ from typing import Annotated, List
 from pydantic import BaseModel, Field
 from stellarphot.settings.aavso_models import AAVSOFilters
 
+__all__ = ["StarList", "SchemaHeader"]
+
 
 class PrettyPrintMixin:
     @classmethod
