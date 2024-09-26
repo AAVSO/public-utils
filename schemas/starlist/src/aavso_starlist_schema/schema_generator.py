@@ -289,5 +289,5 @@ class SchemaHeader(BaseModel, PrettyPrintMixin):
         )
     ]
 
-if __name__ == "__main__":
-    print(json.dumps(SchemaHeader.model_json_schema(), indent=2))
+def generate_starlist_schema():
+    return json.dumps(SchemaHeader.model_json_schema(), indent=2)
