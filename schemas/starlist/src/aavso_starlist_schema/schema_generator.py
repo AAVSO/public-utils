@@ -2,7 +2,8 @@ import json
 
 from typing import Annotated, List
 from pydantic import BaseModel, Field
-from stellarphot.settings.aavso_models import AAVSOFilters
+
+from .passband_names import AAVSOFilters
 
 __all__ = ["StarList", "SchemaHeader"]
 
