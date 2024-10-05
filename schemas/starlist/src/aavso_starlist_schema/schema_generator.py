@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 from .passband_names import AAVSOFilters
 
-__all__ = ["StarList", "SchemaHeader"]
+__all__ = ["StarList", "SchemaHeader", "generate_starlist_schema"]
 
 
 class PrettyPrintMixin:
@@ -289,6 +289,7 @@ class SchemaHeader(BaseModel, PrettyPrintMixin):
             examples=["See StarList"]
         )
     ]
+
 
 def generate_starlist_schema():
     return json.dumps(SchemaHeader.model_json_schema(), indent=2)
