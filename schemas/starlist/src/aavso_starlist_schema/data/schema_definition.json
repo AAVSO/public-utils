@@ -46,7 +46,7 @@
       "title": "AAVSOFilters",
       "type": "string"
     },
-    "StarList": {
+    "StarListItem": {
       "description": "Definition of individual entries in an AAVSO star list.",
       "properties": {
         "x": {
@@ -142,7 +142,7 @@
         "bkgd_flux",
         "peak_flux"
       ],
-      "title": "StarList",
+      "title": "StarListItem",
       "type": "object"
     }
   },
@@ -311,7 +311,7 @@
         "See StarList"
       ],
       "items": {
-        "$ref": "#/$defs/StarList"
+        "$ref": "#/$defs/StarListItem"
       },
       "title": "Star List",
       "type": "array",

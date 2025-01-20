@@ -3,12 +3,12 @@ import pytest
 from astropy.utils.data import get_pkg_data_filename
 
 from st_pipeline.schema_definition import (
-    StarList, SchemaHeader, generate_starlist_schema
+    StarListItem, SchemaHeader, generate_starlist_schema
 )
 from st_pipeline.schema_definition.schema_script import _generate_markdown
 
 
-@pytest.mark.parametrize("klass", [StarList, SchemaHeader])
+@pytest.mark.parametrize("klass", [StarListItem, SchemaHeader])
 def test_schema_has_all_require_properties(klass):
     required_fields = [
         "title",

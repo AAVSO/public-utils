@@ -1,4 +1,4 @@
-# Star List
+# Star List Item
 
 | Title | JSON Field | Type | Unit | Description | Examples |
 | --- | --- | --- | --- | --- | --- |

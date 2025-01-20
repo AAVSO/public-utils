@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 from .passband_names import AAVSOFilters
 
-__all__ = ["StarList", "SchemaHeader", "generate_starlist_schema"]
+__all__ = ["StarListItem", "SchemaHeader", "generate_starlist_schema"]
 
 
 class PrettyPrintMixin:
@@ -27,7 +27,7 @@ class PrettyPrintMixin:
         return "\n".join(rows)
 
 
-class StarList(BaseModel, PrettyPrintMixin):
+class StarListItem(BaseModel, PrettyPrintMixin):
     """
     Definition of individual entries in an AAVSO star list.
     """
@@ -281,7 +281,7 @@ class SchemaHeader(BaseModel, PrettyPrintMixin):
         )
     ]
     starlist: Annotated[
-        List[StarList],
+        List[StarListItem],
         Field(
             title="Star List",
             description="List of stars detected in the image",
