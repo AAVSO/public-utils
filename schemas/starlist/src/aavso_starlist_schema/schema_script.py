@@ -4,7 +4,7 @@ from pathlib import Path
 from pydantic.alias_generators import to_snake
 
 from st_pipeline.schema_definition.schema_generator import (
-    generate_starlist_schema, StarListItem, SchemaHeader
+    generate_starlist_schema, StarListItem, StarList
 )
 
 
@@ -18,8 +18,8 @@ def _generate_markdown():
     return (
         "# " + _nice_name(StarListItem.__name__) + "\n\n" +
         StarListItem.markdown_table() + "\n\n" +
-        "# " + _nice_name(SchemaHeader.__name__) + "\n\n" +
-        SchemaHeader.markdown_table()
+        "# " + _nice_name(StarList.__name__) + "\n\n" +
+        StarList.markdown_table()
     )
 
 

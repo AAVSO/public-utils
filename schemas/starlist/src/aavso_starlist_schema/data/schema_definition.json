@@ -337,6 +337,6 @@
     "refframe",
     "starlist"
   ],
-  "title": "SchemaHeader",
+  "title": "StarList",
   "type": "object"
 }

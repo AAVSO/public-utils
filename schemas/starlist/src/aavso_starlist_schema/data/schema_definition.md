@@ -11,7 +11,7 @@
 | Background counts | bkgd_flux | float | adu / pixel | Background count level in the vicinity of the star | 1209.45 |
 | Peak Counts | peak_flux | int | adu | Peak counts of the star | 31454 |
 
-# Schema Header
+# Star List
 
 | Title | JSON Field | Type | Unit | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
