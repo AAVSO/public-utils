@@ -291,5 +291,16 @@ class SchemaHeader(BaseModel, PrettyPrintMixin):
     ]
 
 
+class StarLists(BaseModel):
+    """
+    Class to hold a for which each entry is a star list.
+    """
+    starlists: List[SchemaHeader]
+
+
 def generate_starlist_schema():
     return json.dumps(SchemaHeader.model_json_schema(), indent=2)
+
+
+def generate_starlists_schema():
+    return json.dumps(StarLists.model_json_schema(), indent=2)
