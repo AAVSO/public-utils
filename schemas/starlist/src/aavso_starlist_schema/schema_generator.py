@@ -283,19 +283,27 @@ class StarList(BaseModel, PrettyPrintMixin):
     staritems: Annotated[
         List[StarItem],
         Field(
-            title="Star List",
+            title="Star Items",
             description="List of stars detected in the image",
             json_schema_extra=dict(unit="none"),
-            examples=["See StarList"]
+            examples=["Each item should be a StarItem"]
         )
     ]
 
 
 class StarListSet(BaseModel, PrettyPrintMixin):
     """
-    Class to hold a for which each entry is a star list.
+    Class to hold a list for which each entry is a star list.
     """
-    starlists: List[StarList]
+    star_lists: Annotated[
+        List[StarList],
+        Field(
+            title="Star List Set",
+            description="List of star lists",
+            json_schema_extra=dict(unit="none"),
+            examples=["Each item should be a StarList"]
+        )
+    ]
 
 
 def generate_starlist_schema():
