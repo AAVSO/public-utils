@@ -27,7 +27,10 @@ def _generate_markdown():
         "# " + _nice_name(StarList.__name__) + "\n\n" +
         StarList.markdown_table() + 3 * "\n\n" +
         "# " + _nice_name(StarItem.__name__) + "\n\n" +
-        StarItem.markdown_table()
+        StarItem.markdown_table() +
+        # Please please end with a single newline....many editors will add one
+        # automatically, so it should be there.
+        "\n"
     )
 
 
