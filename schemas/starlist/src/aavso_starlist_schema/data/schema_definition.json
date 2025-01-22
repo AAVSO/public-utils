@@ -46,7 +46,7 @@
       "title": "AAVSOFilters",
       "type": "string"
     },
-    "StarListItem": {
+    "StarItem": {
       "description": "Definition of individual entries in an AAVSO star list.",
       "properties": {
         "x": {
@@ -142,201 +142,223 @@
         "bkgd_flux",
         "peak_flux"
       ],
-      "title": "StarListItem",
+      "title": "StarItem",
+      "type": "object"
+    },
+    "StarList": {
+      "description": "Definition of the header section of an AAVSO star list schema.",
+      "properties": {
+        "schema_version": {
+          "description": "An AAVSO-assigned string that identifies the schema version",
+          "examples": [
+            "AA_001"
+          ],
+          "title": "Starlist Schema Version",
+          "type": "string",
+          "unit": "none"
+        },
+        "obs_time": {
+          "description": "UTC time at start of observation",
+          "examples": [
+            "2021-06-15T03:45:00"
+          ],
+          "format": "date-time",
+          "scale": "UTC",
+          "title": "Observation Start Time",
+          "type": "string",
+          "unit": null
+        },
+        "site_lat": {
+          "description": "Latitude of the observing site",
+          "examples": [
+            -41.56896
+          ],
+          "maximum": 90.0,
+          "minimum": -90.0,
+          "title": "Site Latitude",
+          "type": "number",
+          "unit": "degree"
+        },
+        "site_lon": {
+          "description": "Longitude of the observing site",
+          "examples": [
+            -71.23841
+          ],
+          "maximum": 180.0,
+          "minimum": -180.0,
+          "title": "Site Longitude",
+          "type": "number",
+          "unit": "degree"
+        },
+        "site_elev": {
+          "description": "Observer's elevation above mean sea level",
+          "examples": [
+            211.0
+          ],
+          "title": "Site Elevation",
+          "type": "number",
+          "unit": "meter"
+        },
+        "observer": {
+          "description": "AAVSO code of the observer",
+          "examples": [
+            "MMU"
+          ],
+          "title": "Observer Code",
+          "type": "string",
+          "unit": "none"
+        },
+        "filter": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/AAVSOFilters"
+            }
+          ],
+          "description": "Filter used for the observation, from https://www.aavso.org/filters",
+          "examples": [
+            "TG"
+          ],
+          "title": "Filter",
+          "unit": "none"
+        },
+        "block_filter": {
+          "description": "Name of blocking filter used on telescope",
+          "examples": [
+            "UV+IR"
+          ],
+          "title": "Blocking Filter",
+          "type": "string",
+          "unit": "none"
+        },
+        "exposure": {
+          "description": "Effective duration of exposure",
+          "examples": [
+            30.0
+          ],
+          "minimum": 0.0,
+          "title": "Exposure Time",
+          "type": "number",
+          "unit": "second"
+        },
+        "tel_manufac": {
+          "description": "Name of the telescope manufacturer",
+          "examples": [
+            "Celestron"
+          ],
+          "title": "Telescope Manufacturer",
+          "type": "string",
+          "unit": "none"
+        },
+        "tel_model": {
+          "description": "Model of the telescope",
+          "examples": [
+            "Origin 1"
+          ],
+          "title": "Telescope Model",
+          "type": "string",
+          "unit": "none"
+        },
+        "tel_firmware": {
+          "description": "Firmware version of the telescope",
+          "examples": [
+            "20240817.01"
+          ],
+          "title": "Telescope Firmware",
+          "type": "string",
+          "unit": "none"
+        },
+        "adc_depth": {
+          "description": "Bit depth of the analog-to-digital converter",
+          "examples": [
+            14
+          ],
+          "minimum": 0,
+          "title": "A/D Converter Bit Depth",
+          "type": "integer",
+          "unit": "bit"
+        },
+        "largest_usable_adu_value": {
+          "description": "Largest usable analog-to-digital unit value",
+          "examples": [
+            41000
+          ],
+          "minimum": 0,
+          "title": "Largest Usable ADU Value",
+          "type": "integer",
+          "unit": "adu"
+        },
+        "epoch": {
+          "description": "Epoch of the observation",
+          "examples": [
+            "J2000"
+          ],
+          "title": "Reporting Epoch",
+          "type": "string",
+          "unit": "none"
+        },
+        "refframe": {
+          "description": "Reference frame of the observation",
+          "examples": [
+            "ICRS"
+          ],
+          "title": "Coordinate Reference Frame",
+          "type": "string",
+          "unit": "none"
+        },
+        "staritems": {
+          "description": "List of stars detected in the image",
+          "examples": [
+            "Each item should be a StarItem"
+          ],
+          "items": {
+            "$ref": "#/$defs/StarItem"
+          },
+          "title": "Star Items",
+          "type": "array",
+          "unit": "none"
+        }
+      },
+      "required": [
+        "schema_version",
+        "obs_time",
+        "site_lat",
+        "site_lon",
+        "site_elev",
+        "observer",
+        "filter",
+        "block_filter",
+        "exposure",
+        "tel_manufac",
+        "tel_model",
+        "tel_firmware",
+        "adc_depth",
+        "largest_usable_adu_value",
+        "epoch",
+        "refframe",
+        "staritems"
+      ],
+      "title": "StarList",
       "type": "object"
     }
   },
-  "description": "Definition of the header section of an AAVSO star list schema.",
+  "description": "Class to hold a list for which each entry is a star list.",
   "properties": {
-    "schema_version": {
-      "description": "An AAVSO-assigned string that identifies the schema version",
+    "star_lists": {
+      "description": "List of star lists",
       "examples": [
-        "AA_001"
-      ],
-      "title": "Starlist Schema Version",
-      "type": "string",
-      "unit": "none"
-    },
-    "obs_time": {
-      "description": "UTC time at start of observation",
-      "examples": [
-        "2021-06-15T03:45:00"
-      ],
-      "format": "date-time",
-      "scale": "UTC",
-      "title": "Observation Start Time",
-      "type": "string",
-      "unit": null
-    },
-    "site_lat": {
-      "description": "Latitude of the observing site",
-      "examples": [
-        -41.56896
-      ],
-      "maximum": 90.0,
-      "minimum": -90.0,
-      "title": "Site Latitude",
-      "type": "number",
-      "unit": "degree"
-    },
-    "site_lon": {
-      "description": "Longitude of the observing site",
-      "examples": [
-        -71.23841
-      ],
-      "maximum": 180.0,
-      "minimum": -180.0,
-      "title": "Site Longitude",
-      "type": "number",
-      "unit": "degree"
-    },
-    "site_elev": {
-      "description": "Observer's elevation above mean sea level",
-      "examples": [
-        211.0
-      ],
-      "title": "Site Elevation",
-      "type": "number",
-      "unit": "meter"
-    },
-    "observer": {
-      "description": "AAVSO code of the observer",
-      "examples": [
-        "MMU"
-      ],
-      "title": "Observer Code",
-      "type": "string",
-      "unit": "none"
-    },
-    "filter": {
-      "allOf": [
-        {
-          "$ref": "#/$defs/AAVSOFilters"
-        }
-      ],
-      "description": "Filter used for the observation, from https://www.aavso.org/filters",
-      "examples": [
-        "TG"
-      ],
-      "title": "Filter",
-      "unit": "none"
-    },
-    "block_filter": {
-      "description": "Name of blocking filter used on telescope",
-      "examples": [
-        "UV+IR"
-      ],
-      "title": "Blocking Filter",
-      "type": "string",
-      "unit": "none"
-    },
-    "exposure": {
-      "description": "Effective duration of exposure",
-      "examples": [
-        30.0
-      ],
-      "minimum": 0.0,
-      "title": "Exposure Time",
-      "type": "number",
-      "unit": "second"
-    },
-    "tel_manufac": {
-      "description": "Name of the telescope manufacturer",
-      "examples": [
-        "Celestron"
-      ],
-      "title": "Telescope Manufacturer",
-      "type": "string",
-      "unit": "none"
-    },
-    "tel_model": {
-      "description": "Model of the telescope",
-      "examples": [
-        "Origin 1"
-      ],
-      "title": "Telescope Model",
-      "type": "string",
-      "unit": "none"
-    },
-    "tel_firmware": {
-      "description": "Firmware version of the telescope",
-      "examples": [
-        "20240817.01"
-      ],
-      "title": "Telescope Firmware",
-      "type": "string",
-      "unit": "none"
-    },
-    "adc_depth": {
-      "description": "Bit depth of the analog-to-digital converter",
-      "examples": [
-        14
-      ],
-      "minimum": 0,
-      "title": "A/D Converter Bit Depth",
-      "type": "integer",
-      "unit": "bit"
-    },
-    "largest_usable_adu_value": {
-      "description": "Largest usable analog-to-digital unit value",
-      "examples": [
-        41000
-      ],
-      "minimum": 0,
-      "title": "Largest Usable ADU Value",
-      "type": "integer",
-      "unit": "adu"
-    },
-    "epoch": {
-      "description": "Epoch of the observation",
-      "examples": [
-        "J2000"
-      ],
-      "title": "Reporting Epoch",
-      "type": "string",
-      "unit": "none"
-    },
-    "refframe": {
-      "description": "Reference frame of the observation",
-      "examples": [
-        "ICRS"
-      ],
-      "title": "Coordinate Reference Frame",
-      "type": "string",
-      "unit": "none"
-    },
-    "starlist": {
-      "description": "List of stars detected in the image",
-      "examples": [
-        "See StarList"
+        "Each item should be a StarList"
       ],
       "items": {
-        "$ref": "#/$defs/StarListItem"
+        "$ref": "#/$defs/StarList"
       },
-      "title": "Star List",
+      "title": "Star List Set",
       "type": "array",
       "unit": "none"
     }
   },
   "required": [
-    "schema_version",
-    "obs_time",
-    "site_lat",
-    "site_lon",
-    "site_elev",
-    "observer",
-    "filter",
-    "block_filter",
-    "exposure",
-    "tel_manufac",
-    "tel_model",
-    "tel_firmware",
-    "adc_depth",
-    "largest_usable_adu_value",
-    "epoch",
-    "refframe",
-    "starlist"
+    "star_lists"
   ],
-  "title": "StarList",
+  "title": "StarListSet",
   "type": "object"
 }

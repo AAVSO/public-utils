@@ -1,4 +1,4 @@
-# Star List Item
+# Star Item
 
 | Title | JSON Field | Type | Unit | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -31,4 +31,10 @@
 | Largest Usable ADU Value | largest_usable_adu_value | int | adu | Largest usable analog-to-digital unit value | 41000 |
 | Reporting Epoch | epoch | str | none | Epoch of the observation | J2000 |
 | Coordinate Reference Frame | refframe | str | none | Reference frame of the observation | ICRS |
-| Star List | starlist | List | none | List of stars detected in the image | See StarList |
+| Star Items | staritems | List | none | List of stars detected in the image | Each item should be a StarItem |
+
+# Star List Set
+
+| Title | JSON Field | Type | Unit | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| Star List Set | star_lists | List | none | List of star lists | Each item should be a StarList |
