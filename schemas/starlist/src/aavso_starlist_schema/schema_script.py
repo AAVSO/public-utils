@@ -15,13 +15,19 @@ def _nice_name(name):
 
 
 def _generate_markdown():
+    """
+    Generate document with the container class, StarListSet, up at top,
+    followed by the individual StarList StarItem classes.
+
+    That reads a little better than the other way around.
+    """
     return (
-        "# " + _nice_name(StarItem.__name__) + "\n\n" +
-        StarItem.markdown_table() + "\n\n" +
-        "# " + _nice_name(StarList.__name__) + "\n\n" +
-        StarList.markdown_table() + "\n\n" +
         "# " + _nice_name(StarListSet.__name__) + "\n\n" +
-        StarListSet.markdown_table()
+        StarListSet.markdown_table() + 3 * "\n\n" +
+        "# " + _nice_name(StarList.__name__) + "\n\n" +
+        StarList.markdown_table() + 3 * "\n\n" +
+        "# " + _nice_name(StarItem.__name__) + "\n\n" +
+        StarItem.markdown_table()
     )
 
 

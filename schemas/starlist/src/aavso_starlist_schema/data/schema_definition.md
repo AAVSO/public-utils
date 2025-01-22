@@ -1,15 +1,12 @@
-# Star Item
+# Star List Set
 
 | Title | JSON Field | Type | Unit | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
-| X-coordinate | x | float | pixel | X-coordinate of the star center (in pixel coordinates) | 1206.78 |
-| Y-coordinate | y | float | pixel | Y-coordinate of the star center (in pixel coordinates) | 620.1 |
-| Right Ascension | ra | float | degree | Right Ascension of the star (in decimal degrees) at the epoch specified in the metadata | 212.56789 |
-| Declination | dec | float | degree | Declination of the star (in decimal degrees) at the epoch specified in the metadata | -12.12345 |
-| Star Flux | tot_flux | float | adu | Total integrated counts of the star, background-subtracted | 156700.4 |
-| Flux Error | flux_err | float | adu | Error in the total integrated counts of the star | 15300.1 |
-| Background counts | bkgd_flux | float | adu / pixel | Background count level in the vicinity of the star | 1209.45 |
-| Peak Counts | peak_flux | int | adu | Peak counts of the star | 31454 |
+| Star List Set | star_lists | List | none | List of star lists | Each item should be a StarList |
+
+
+
+
 
 # Star List
 
@@ -33,8 +30,19 @@
 | Coordinate Reference Frame | refframe | str | none | Reference frame of the observation | ICRS |
 | Star Items | staritems | List | none | List of stars detected in the image | Each item should be a StarItem |
 
-# Star List Set
+
+
+
+
+# Star Item
 
 | Title | JSON Field | Type | Unit | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
-| Star List Set | star_lists | List | none | List of star lists | Each item should be a StarList |
+| X-coordinate | x | float | pixel | X-coordinate of the star center (in pixel coordinates) | 1206.78 |
+| Y-coordinate | y | float | pixel | Y-coordinate of the star center (in pixel coordinates) | 620.1 |
+| Right Ascension | ra | float | degree | Right Ascension of the star (in decimal degrees) at the epoch specified in the metadata | 212.56789 |
+| Declination | dec | float | degree | Declination of the star (in decimal degrees) at the epoch specified in the metadata | -12.12345 |
+| Star Flux | tot_flux | float | adu | Total integrated counts of the star, background-subtracted | 156700.4 |
+| Flux Error | flux_err | float | adu | Error in the total integrated counts of the star | 15300.1 |
+| Background counts | bkgd_flux | float | adu / pixel | Background count level in the vicinity of the star | 1209.45 |
+| Peak Counts | peak_flux | int | adu | Peak counts of the star | 31454 |
