@@ -4,7 +4,7 @@ from pathlib import Path
 from pydantic.alias_generators import to_snake
 
 from st_pipeline.schema_definition.schema_generator import (
-    generate_starlist_schema, StarListItem, StarList
+    generate_star_list_set_schema, StarItem, StarList, StarListSet
 )
 
 
@@ -16,10 +16,12 @@ def _nice_name(name):
 
 def _generate_markdown():
     return (
-        "# " + _nice_name(StarListItem.__name__) + "\n\n" +
-        StarListItem.markdown_table() + "\n\n" +
+        "# " + _nice_name(StarItem.__name__) + "\n\n" +
+        StarItem.markdown_table() + "\n\n" +
         "# " + _nice_name(StarList.__name__) + "\n\n" +
-        StarList.markdown_table()
+        StarList.markdown_table() + "\n\n" +
+        "# " + _nice_name(StarListSet.__name__) + "\n\n" +
+        StarListSet.markdown_table()
     )
 
 
@@ -31,7 +33,7 @@ def main(filename, markdown=False):
     if markdown:
         content = _generate_markdown()
     else:
-        content = generate_starlist_schema()
+        content = generate_star_list_set_schema()
 
     with p.open("w") as f:
         f.write(content)
