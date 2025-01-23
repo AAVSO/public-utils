@@ -3,6 +3,7 @@ import json
 from typing import Annotated, List
 from pydantic import BaseModel, Field
 
+from .. import __version__
 from .passband_names import AAVSOFilters
 
 __all__ = ["StarItem", "StarList", "StarListSet", "generate_starlist_schema", "generate_star_list_set_schema"]
@@ -131,7 +132,9 @@ class StarList(BaseModel, PrettyPrintMixin):
             title="Starlist Schema Version",
             description="An AAVSO-assigned string that identifies the schema version",
             json_schema_extra=dict(unit="none"),
-            examples=["AA_001"]
+            examples=["0.0.1"],
+            frozen=True,  # Prevent the user from changing this after the instance is created
+            default=__version__,
         )
     ]
     obs_time: Annotated[
