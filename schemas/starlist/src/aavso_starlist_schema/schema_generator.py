@@ -126,17 +126,6 @@ class StarList(BaseModel, PrettyPrintMixin):
     """
     Definition of the header section of an AAVSO star list schema.
     """
-    schema_version: Annotated[
-        str,
-        Field(
-            title="Starlist Schema Version",
-            description="An AAVSO-assigned string that identifies the schema version",
-            json_schema_extra=dict(unit="none"),
-            examples=["0.0.1"],
-            frozen=True,  # Prevent the user from changing this after the instance is created
-            default=__version__,
-        )
-    ]
     obs_time: Annotated[
         str,
         Field(
@@ -298,6 +287,18 @@ class StarListSet(BaseModel, PrettyPrintMixin):
     """
     Class to hold a list for which each entry is a star list.
     """
+    # Put the version here because this is the file we expect manufacturers
+    # to submit.
+    schema_version: Annotated[
+        str,
+        Field(
+            title="Starlist Schema Version",
+            description="An AAVSO-assigned string that identifies the schema version",
+            json_schema_extra=dict(unit="none"),
+            examples=["0.0.1"],
+            default=__version__,
+        )
+    ]
     star_lists: Annotated[
         List[StarList],
         Field(

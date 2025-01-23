@@ -148,15 +148,6 @@
     "StarList": {
       "description": "Definition of the header section of an AAVSO star list schema.",
       "properties": {
-        "schema_version": {
-          "description": "An AAVSO-assigned string that identifies the schema version",
-          "examples": [
-            "AA_001"
-          ],
-          "title": "Starlist Schema Version",
-          "type": "string",
-          "unit": "none"
-        },
         "obs_time": {
           "description": "UTC time at start of observation",
           "examples": [
@@ -319,7 +310,6 @@
         }
       },
       "required": [
-        "schema_version",
         "obs_time",
         "site_lat",
         "site_lon",
@@ -343,6 +333,16 @@
   },
   "description": "Class to hold a list for which each entry is a star list.",
   "properties": {
+    "schema_version": {
+      "default": "0.0.1.dev86+gff3fb1d",
+      "description": "An AAVSO-assigned string that identifies the schema version",
+      "examples": [
+        "0.0.1"
+      ],
+      "title": "Starlist Schema Version",
+      "type": "string",
+      "unit": "none"
+    },
     "star_lists": {
       "description": "List of star lists",
       "examples": [
