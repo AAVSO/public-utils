@@ -3,12 +3,12 @@ import pytest
 from astropy.utils.data import get_pkg_data_filename
 
 from st_pipeline.schema_definition import (
-    StarList, SchemaHeader, generate_starlist_schema
+    StarItem, StarList, StarListSet, generate_starlist_schema, generate_star_list_set_schema
 )
 from st_pipeline.schema_definition.schema_script import _generate_markdown
 
 
-@pytest.mark.parametrize("klass", [StarList, SchemaHeader])
+@pytest.mark.parametrize("klass", [StarItem, StarList, StarListSet])
 def test_schema_has_all_require_properties(klass):
     required_fields = [
         "title",
@@ -45,4 +45,4 @@ def test_starlist_json():
     with open(json_file) as f:
         json_file_content = f.read()
 
-    assert generate_starlist_schema() == json_file_content
+    assert generate_star_list_set_schema() == json_file_content

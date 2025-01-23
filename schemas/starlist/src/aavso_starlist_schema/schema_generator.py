@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 from .passband_names import AAVSOFilters
 
-__all__ = ["StarList", "SchemaHeader", "generate_starlist_schema"]
+__all__ = ["StarItem", "StarList", "StarListSet", "generate_starlist_schema", "generate_star_list_set_schema"]
 
 
 class PrettyPrintMixin:
@@ -27,7 +27,7 @@ class PrettyPrintMixin:
         return "\n".join(rows)
 
 
-class StarList(BaseModel, PrettyPrintMixin):
+class StarItem(BaseModel, PrettyPrintMixin):
     """
     Definition of individual entries in an AAVSO star list.
     """
@@ -121,7 +121,7 @@ class StarList(BaseModel, PrettyPrintMixin):
     ]
 
 
-class SchemaHeader(BaseModel, PrettyPrintMixin):
+class StarList(BaseModel, PrettyPrintMixin):
     """
     Definition of the header section of an AAVSO star list schema.
     """
@@ -280,16 +280,35 @@ class SchemaHeader(BaseModel, PrettyPrintMixin):
             examples=["ICRS"]
         )
     ]
-    starlist: Annotated[
-        List[StarList],
+    staritems: Annotated[
+        List[StarItem],
         Field(
-            title="Star List",
+            title="Star Items",
             description="List of stars detected in the image",
             json_schema_extra=dict(unit="none"),
-            examples=["See StarList"]
+            examples=["Each item should be a StarItem"]
+        )
+    ]
+
+
+class StarListSet(BaseModel, PrettyPrintMixin):
+    """
+    Class to hold a list for which each entry is a star list.
+    """
+    star_lists: Annotated[
+        List[StarList],
+        Field(
+            title="Star List Set",
+            description="List of star lists",
+            json_schema_extra=dict(unit="none"),
+            examples=["Each item should be a StarList"]
         )
     ]
 
 
 def generate_starlist_schema():
-    return json.dumps(SchemaHeader.model_json_schema(), indent=2)
+    return json.dumps(StarList.model_json_schema(), indent=2)
+
+
+def generate_star_list_set_schema():
+    return json.dumps(StarListSet.model_json_schema(), indent=2)

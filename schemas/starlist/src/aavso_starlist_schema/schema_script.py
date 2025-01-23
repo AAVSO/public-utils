@@ -4,7 +4,7 @@ from pathlib import Path
 from pydantic.alias_generators import to_snake
 
 from st_pipeline.schema_definition.schema_generator import (
-    generate_starlist_schema, StarList, SchemaHeader
+    generate_star_list_set_schema, StarItem, StarList, StarListSet
 )
 
 
@@ -15,11 +15,22 @@ def _nice_name(name):
 
 
 def _generate_markdown():
+    """
+    Generate document with the container class, StarListSet, up at top,
+    followed by the individual StarList StarItem classes.
+
+    That reads a little better than the other way around.
+    """
     return (
+        "# " + _nice_name(StarListSet.__name__) + "\n\n" +
+        StarListSet.markdown_table() + 3 * "\n\n" +
         "# " + _nice_name(StarList.__name__) + "\n\n" +
-        StarList.markdown_table() + "\n\n" +
-        "# " + _nice_name(SchemaHeader.__name__) + "\n\n" +
-        SchemaHeader.markdown_table()
+        StarList.markdown_table() + 3 * "\n\n" +
+        "# " + _nice_name(StarItem.__name__) + "\n\n" +
+        StarItem.markdown_table() +
+        # Please please end with a single newline....many editors will add one
+        # automatically, so it should be there.
+        "\n"
     )
 
 
@@ -31,7 +42,7 @@ def main(filename, markdown=False):
     if markdown:
         content = _generate_markdown()
     else:
-        content = generate_starlist_schema()
+        content = generate_star_list_set_schema()
 
     with p.open("w") as f:
         f.write(content)
