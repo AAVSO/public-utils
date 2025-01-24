@@ -3,6 +3,7 @@ import json
 from typing import Annotated, List
 from pydantic import BaseModel, Field
 
+from .. import __version__
 from .passband_names import AAVSOFilters
 
 __all__ = ["StarItem", "StarList", "StarListSet", "generate_starlist_schema", "generate_star_list_set_schema"]
@@ -125,15 +126,6 @@ class StarList(BaseModel, PrettyPrintMixin):
     """
     Definition of the header section of an AAVSO star list schema.
     """
-    schema_version: Annotated[
-        str,
-        Field(
-            title="Starlist Schema Version",
-            description="An AAVSO-assigned string that identifies the schema version",
-            json_schema_extra=dict(unit="none"),
-            examples=["AA_001"]
-        )
-    ]
     obs_time: Annotated[
         str,
         Field(
@@ -295,6 +287,18 @@ class StarListSet(BaseModel, PrettyPrintMixin):
     """
     Class to hold a list for which each entry is a star list.
     """
+    # Put the version here because this is the file we expect manufacturers
+    # to submit.
+    schema_version: Annotated[
+        str,
+        Field(
+            title="Starlist Schema Version",
+            description="An AAVSO-assigned string that identifies the schema version",
+            json_schema_extra=dict(unit="none"),
+            examples=["0.0.1"],
+            default=__version__,
+        )
+    ]
     star_lists: Annotated[
         List[StarList],
         Field(

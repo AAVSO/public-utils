@@ -2,6 +2,7 @@
 
 | Title | JSON Field | Type | Unit | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
+| Starlist Schema Version | schema_version | str | none | An AAVSO-assigned string that identifies the schema version | 0.0.1 |
 | Star List Set | star_lists | List | none | List of star lists | Each item should be a StarList |
 
 
@@ -12,7 +13,6 @@
 
 | Title | JSON Field | Type | Unit | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
-| Starlist Schema Version | schema_version | str | none | An AAVSO-assigned string that identifies the schema version | AA_001 |
 | Observation Start Time | obs_time | str | None | UTC time at start of observation | 2021-06-15T03:45:00 |
 | Site Latitude | site_lat | float | degree | Latitude of the observing site | -41.56896 |
 | Site Longitude | site_lon | float | degree | Longitude of the observing site | -71.23841 |
