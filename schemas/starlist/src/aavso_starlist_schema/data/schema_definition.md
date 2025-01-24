@@ -45,4 +45,4 @@
 | Star Flux | tot_flux | float | adu | Total integrated counts of the star, background-subtracted | 156700.4 |
 | Flux Error | flux_err | float | adu | Error in the total integrated counts of the star | 15300.1 |
 | Background counts | bkgd_flux | float | adu / pixel | Background count level in the vicinity of the star | 1209.45 |
-| Peak Counts | peak_flux | int | adu | Peak counts of the star | 31454 |
+| Peak Counts | peak_flux | float | adu | Peak counts of the star | 31454.963 |

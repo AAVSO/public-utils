@@ -111,13 +111,13 @@ class StarItem(BaseModel, PrettyPrintMixin):
         )
     ]
     peak_flux: Annotated[
-        int,
+        float,
         Field(
             ge=0,
             title="Peak Counts",
             description="Peak counts of the star",
             json_schema_extra=dict(unit="adu"),
-            examples=[31454]
+            examples=[31454.963]
         )
     ]
 
