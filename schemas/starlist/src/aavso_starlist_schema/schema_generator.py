@@ -254,6 +254,16 @@ class StarList(BaseModel, PrettyPrintMixin):
             examples=[41000]
         )
     ]
+    gain: Annotated[
+        float,
+        Field(
+            ge=0,
+            title="Gain",
+            description="Gain of the camera",
+            json_schema_extra=dict(unit="e-/adu"),
+            examples=[1.2]
+        )
+    ]
     epoch: Annotated[
         str,
         Field(

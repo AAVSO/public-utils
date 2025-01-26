@@ -278,6 +278,16 @@
           "type": "integer",
           "unit": "adu"
         },
+        "gain": {
+          "description": "Gain of the camera",
+          "examples": [
+            1.2
+          ],
+          "minimum": 0.0,
+          "title": "Gain",
+          "type": "number",
+          "unit": "e-/adu"
+        },
         "epoch": {
           "description": "Epoch of the observation",
           "examples": [
@@ -323,6 +333,7 @@
         "tel_firmware",
         "adc_depth",
         "largest_usable_adu_value",
+        "gain",
         "epoch",
         "refframe",
         "staritems"
@@ -334,7 +345,7 @@
   "description": "Class to hold a list for which each entry is a star list.",
   "properties": {
     "schema_version": {
-      "default": "0.0.1.dev99+gffd1148.d20250124",
+      "default": "0.0.1.dev104+g7e05b8b.d20250126",
       "description": "An AAVSO-assigned string that identifies the schema version",
       "examples": [
         "0.0.1"

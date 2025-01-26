@@ -26,6 +26,7 @@
 | Telescope Firmware | tel_firmware | str | none | Firmware version of the telescope | 20240817.01 |
 | A/D Converter Bit Depth | adc_depth | int | bit | Bit depth of the analog-to-digital converter | 14 |
 | Largest Usable ADU Value | largest_usable_adu_value | int | adu | Largest usable analog-to-digital unit value | 41000 |
+| Gain | gain | float | e-/adu | Gain of the camera | 1.2 |
 | Reporting Epoch | epoch | str | none | Epoch of the observation | J2000 |
 | Coordinate Reference Frame | refframe | str | none | Reference frame of the observation | ICRS |
 | Star Items | staritems | List | none | List of stars detected in the image | Each item should be a StarItem |
