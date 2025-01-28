@@ -26,6 +26,7 @@
 | Telescope Firmware | tel_firmware | str | none | Firmware version of the telescope | 20240817.01 |
 | A/D Converter Bit Depth | adc_depth | int | bit | Bit depth of the analog-to-digital converter | 14 |
 | Largest Usable ADU Value | largest_usable_adu_value | int | adu | Largest usable analog-to-digital unit value | 41000 |
+| Gain | gain | float | e-/adu | Gain of the camera | 1.2 |
 | Reporting Epoch | epoch | str | none | Epoch of the observation | J2000 |
 | Coordinate Reference Frame | refframe | str | none | Reference frame of the observation | ICRS |
 | Star Items | staritems | List | none | List of stars detected in the image | Each item should be a StarItem |
@@ -45,4 +46,4 @@
 | Star Flux | tot_flux | float | adu | Total integrated counts of the star, background-subtracted | 156700.4 |
 | Flux Error | flux_err | float | adu | Error in the total integrated counts of the star | 15300.1 |
 | Background counts | bkgd_flux | float | adu / pixel | Background count level in the vicinity of the star | 1209.45 |
-| Peak Counts | peak_flux | int | adu | Peak counts of the star | 31454 |
+| Peak Counts | peak_flux | float | adu | Peak counts of the star | 31454.963 |
