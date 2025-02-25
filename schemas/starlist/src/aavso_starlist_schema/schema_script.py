@@ -4,7 +4,10 @@ from pathlib import Path
 from pydantic.alias_generators import to_snake
 
 from st_pipeline.schema_definition.schema_generator import (
-    generate_star_list_set_schema, StarItem, StarList, StarListSet
+    StarItem,
+    StarList,
+    StarListSet,
+    generate_star_list_set_schema,
 )
 
 

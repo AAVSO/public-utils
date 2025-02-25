@@ -1,6 +1,6 @@
 import json
-
 from typing import Annotated, List
+
 from pydantic import BaseModel, Field
 
 from .. import __version__

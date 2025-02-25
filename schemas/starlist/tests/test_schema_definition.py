@@ -1,12 +1,15 @@
 import json
 
 import pytest
-
 from astropy.utils.data import get_pkg_data_filename
 
 from st_pipeline import __version__
 from st_pipeline.schema_definition import (
-    StarItem, StarList, StarListSet, generate_starlist_schema, generate_star_list_set_schema
+    StarItem,
+    StarList,
+    StarListSet,
+    generate_star_list_set_schema,
+    generate_starlist_schema,
 )
 from st_pipeline.schema_definition.schema_script import _generate_markdown
 
