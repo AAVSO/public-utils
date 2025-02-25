@@ -1,5 +1,5 @@
 import json
-from typing import Annotated, List
+from typing import Annotated
 
 from pydantic import BaseModel, Field
 
@@ -283,7 +283,7 @@ class StarList(BaseModel, PrettyPrintMixin):
         )
     ]
     staritems: Annotated[
-        List[StarItem],
+        list[StarItem],
         Field(
             title="Star Items",
             description="List of stars detected in the image",
@@ -310,7 +310,7 @@ class StarListSet(BaseModel, PrettyPrintMixin):
         )
     ]
     star_lists: Annotated[
-        List[StarList],
+        list[StarList],
         Field(
             title="Star List Set",
             description="List of star lists",
