@@ -58,4 +58,4 @@ def test_starlist_json():
         # If we are in a source install, we want to ignore the version number.
         current_schema["properties"]["schema_version"]["default"] = expected_content["properties"]["schema_version"]["default"]
 
-    current_schema == expected_content
+    assert current_schema == expected_content
