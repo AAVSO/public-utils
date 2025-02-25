@@ -9,7 +9,6 @@ from st_pipeline.schema_definition import (
     StarList,
     StarListSet,
     generate_star_list_set_schema,
-    generate_starlist_schema,
 )
 from st_pipeline.schema_definition.schema_script import _generate_markdown
 
