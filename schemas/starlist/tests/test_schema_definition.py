@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from astropy.table import Table
 from astropy.utils.data import get_pkg_data_filename
 
 from st_pipeline import __version__
@@ -31,6 +32,13 @@ def test_schema_has_all_require_properties(klass):
             assert len(field_info.json_schema_extra["scale"]) > 0
 
 
+@pytest.mark.parametrize("klass", [StarItem, StarList, StarListSet])
+def test_example_values_are_valid(klass):
+    # Check that the example values are valid
+    # by creating an instance of the class with the example values
+    klass.from_examples()
+
+
 def test_starlist_markdown_table():
     mdown_file = get_pkg_data_filename(
         "data/schema_definition.md",
@@ -59,3 +67,105 @@ def test_starlist_json():
         current_schema["properties"]["schema_version"]["default"] = expected_content["properties"]["schema_version"]["default"]
 
     assert current_schema == expected_content
+
+
+def test_make_star_list_from_table_of_items():
+    # Make a table with a single star item and turn it into a star list
+    table = Table(
+        dict(
+            x=[12.6],
+            y=[23.4],
+            ra=[123.6],
+            dec=[43.4],
+            tot_flux=[100.0],
+            flux_err=[10.1],
+            bkgd_flux=[4.0],
+            peak_flux=[100.0],
+        )
+    )
+    # There are two ways to provide the "metadata", i.e. the non-StarItems
+    # that are required to create a StarList
+    # 1. Provide a dictionary with the metadata
+
+    # Here we generate the dictionary from the example StarList
+    meta = StarList.from_examples().model_dump()
+
+    # Get rid of the empty staritems
+    del meta["staritems"]
+
+    sl = StarList.from_table(table, meta)
+    sl_dict = sl.model_dump()
+
+    # Check the non-star items
+    for key in meta:
+        assert sl_dict[key] == meta[key]
+
+    # Check a couple of the star item properties
+    assert len(sl.staritems) == 1
+    assert sl.staritems[0].x == 12.6
+    assert sl.staritems[0].bkgd_flux == 4.0
+
+    # 2. Provide a Table that has the metadata
+
+    table.meta = meta.copy()
+    sl2 = StarList.from_table(table)
+
+    assert sl2 == sl
+
+    # 3. Provide both table metadata and explicit metadata argument.
+    #    The explicit metadata should take precedence
+    fake_observer = "Ima Fake"
+    meta["observer"] = fake_observer
+    sl3 = StarList.from_table(table, meta)
+    assert sl3.observer == fake_observer
+
+    # Finally, test a couple of cases where errors should be raised.
+
+    # If the table is missing a required column we should get an error
+    x_col = table["x"]
+    del table["x"]
+    with pytest.raises(ValueError, match="Missing columns in table: x"):
+        StarList.from_table(table)
+
+    # Put the column back for the next test
+    table["x"] = x_col
+
+    # If an item is missing from the required metadata we should get a
+    # helpful error.
+    missing_item = "exposure"
+    del table.meta[missing_item]
+
+    with pytest.raises(ValueError, match=f"Missing keys in metadata: {missing_item}"):
+        StarList.from_table(table)
+
+
+def test_make_table_from_starlist():
+    # Make sure we can make a table from a starlist
+
+    # Make a StarItem and a StarList from the example values we provide
+    # in the schema
+    staritem = StarItem.from_examples()
+    sl = StarList.from_examples()
+    sl.staritems = [staritem]
+
+    table = sl.to_table()
+
+    # Check that the table has the same number of rows as the StarItems
+    assert len(table) == len(sl.staritems)
+
+    # Check that the non-star item stuff is in the table
+    sl_dict = sl.model_dump()
+
+    # We check star items separately
+    del sl_dict["staritems"]
+
+    assert table.meta == sl_dict
+
+    # Check that the table has the right cols, and only those columns.
+    assert set(table.colnames) == set(StarItem.model_fields.keys())
+
+    # Check the values in the only row in this table
+    star_item_dict = staritem.model_dump()
+
+    for key in star_item_dict:
+        assert table[key][0] == star_item_dict[key]

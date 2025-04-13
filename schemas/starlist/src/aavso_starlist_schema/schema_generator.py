@@ -1,6 +1,8 @@
 import json
+from collections import defaultdict
 from typing import Annotated
 
+from astropy.table import Table
 from pydantic import BaseModel, Field
 
 from .. import __version__
@@ -28,7 +30,20 @@ class PrettyPrintMixin:
         return "\n".join(rows)
 
 
-class StarItem(BaseModel, PrettyPrintMixin):
+class GenerateInstanceFromExamplesMixin:
+    """
+    Mixin to generate an instance of the class from the examples in the schema.
+    """
+    @classmethod
+    def from_examples(cls):
+        """
+        Generate an instance of the class from the examples in the schema.
+        """
+        example_data = {name: field_info.examples[0] for name, field_info in cls.model_fields.items()}
+        return cls(**example_data)
+
+
+class StarItem(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     """
     Definition of individual entries in an AAVSO star list.
     """
@@ -122,7 +137,7 @@ class StarItem(BaseModel, PrettyPrintMixin):
     ]
 
 
-class StarList(BaseModel, PrettyPrintMixin):
+class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     """
     Definition of the header section of an AAVSO star list schema.
     """
@@ -288,12 +303,80 @@ class StarList(BaseModel, PrettyPrintMixin):
             title="Star Items",
             description="List of stars detected in the image",
             json_schema_extra=dict(unit="none"),
-            examples=["Each item should be a StarItem"]
+            examples=[[]]
         )
     ]
 
+    @classmethod
+    def from_table(cls, table, metadata=None):
+        """
+        Create a StarList object from a `astropy.table.Table` object.
 
-class StarListSet(BaseModel, PrettyPrintMixin):
+        Parameters
+        ----------
+        table : `astropy.table.Table`
+            The input table containing one row per star item.
+
+        metadata : dict, optional
+            Additional metadata to ustoin the StarList object.
+            If not provided, the metadata from the table will be used.
+            If both are provided, the metadata from this argument will
+            take precedence.
+
+        Returns
+        -------
+        StarList
+            An instance of the StarList class.
+        """
+        # First create the star items from the table rows.
+        star_items = []
+        missing_keys = set(StarItem.model_fields.keys()) - set(table.colnames)
+        if missing_keys:
+            raise ValueError(f"Missing columns in table: {", ".join(missing_keys)}")
+        for row in table:
+            star_items.append(
+                StarItem(**{key: row[key] for key in StarItem.model_fields.keys()})
+            )
+
+        # Construct metadata, with any passed in to the metadata argument
+        # taking precedence over metadata in the table.
+        final_meta = table.meta.copy()
+        if metadata:
+            final_meta.update(metadata)
+
+        final_meta["staritems"] = star_items
+
+        if missing_keys := set(cls.model_fields.keys()) - set(final_meta.keys()):
+            raise ValueError(f"Missing keys in metadata: {", ".join(missing_keys)}")
+
+        # Create the StarList object
+        return cls.model_validate(final_meta)
+
+    def to_table(self):
+        """
+        Create an astropy table from a starlist.
+
+        Returns
+        -------
+
+        `astropy.table.Table`
+            A table in which the columns are the  individual star items
+            properties, with one star item per row. The remaining information
+            from the starlist is stored in the table metata.
+
+        """
+        table_columns = self.staritems[0].model_fields
+        table_dict = defaultdict(list)
+        for star in self.staritems:
+            for col in table_columns:
+                table_dict[col].append(getattr(star, col))
+
+        table_meta = self.model_dump()
+        table_meta.pop("staritems")
+
+        return Table(table_dict, meta=table_meta)
+
+class StarListSet(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     """
     Class to hold a list for which each entry is a star list.
     """
@@ -315,7 +398,7 @@ class StarListSet(BaseModel, PrettyPrintMixin):
             title="Star List Set",
             description="List of star lists",
             json_schema_extra=dict(unit="none"),
-            examples=["Each item should be a StarList"]
+            examples=[[]]
         )
     ]
 

@@ -310,7 +310,7 @@
         "staritems": {
           "description": "List of stars detected in the image",
           "examples": [
-            "Each item should be a StarItem"
+            []
           ],
           "items": {
             "$ref": "#/$defs/StarItem"
@@ -358,7 +358,7 @@
     "star_lists": {
       "description": "List of star lists",
       "examples": [
-        "Each item should be a StarList"
+        []
       ],
       "items": {
         "$ref": "#/$defs/StarList"

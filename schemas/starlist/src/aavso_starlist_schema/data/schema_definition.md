@@ -3,7 +3,7 @@
 | Title | JSON Field | Type | Unit | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | Starlist Schema Version | schema_version | str | none | An AAVSO-assigned string that identifies the schema version | 0.0.1 |
-| Star List Set | star_lists | list | none | List of star lists | Each item should be a StarList |
+| Star List Set | star_lists | list | none | List of star lists | [] |
 
 
 
@@ -29,7 +29,7 @@
 | Gain | gain | float | e-/adu | Gain of the camera | 1.2 |
 | Reporting Epoch | epoch | str | none | Epoch of the observation | J2000 |
 | Coordinate Reference Frame | refframe | str | none | Reference frame of the observation | ICRS |
-| Star Items | staritems | list | none | List of stars detected in the image | Each item should be a StarItem |
+| Star Items | staritems | list | none | List of stars detected in the image | [] |
 
 
 
