@@ -347,7 +347,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
         final_meta["staritems"] = star_items
 
         if missing_keys := set(cls.model_fields.keys()) - set(final_meta.keys()):
-            raise ValueError(f"Missing keys in metadata: {", ".join(missing_keys)}")
+            raise ValueError(f"Missing keys in metadata: {', '.join(missing_keys)}")
 
         # Create the StarList object
         return cls.model_validate(final_meta)
