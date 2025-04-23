@@ -332,7 +332,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
         star_items = []
         missing_keys = set(StarItem.model_fields.keys()) - set(table.colnames)
         if missing_keys:
-            raise ValueError(f"Missing columns in table: {", ".join(missing_keys)}")
+            raise ValueError(f"Missing columns in table: {', '.join(missing_keys)}")
         for row in table:
             star_items.append(
                 StarItem(**{key: row[key] for key in StarItem.model_fields.keys()})
