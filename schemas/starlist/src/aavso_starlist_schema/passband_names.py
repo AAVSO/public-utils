@@ -2,7 +2,7 @@ from enum import StrEnum
 
 import requests
 
-PASSBAND_URL = "https://www.aavso.org/vsx/index.php?view=api.bands&format=json"
+PASSBAND_URL = "https://vsx.aavso.org/index.php?view=api.bands&format=json"
 PASSBAND_VERSION = "2"
 
 # Copy/paste from stellarphot
