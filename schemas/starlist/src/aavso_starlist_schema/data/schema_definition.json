@@ -2,47 +2,11 @@
   "$defs": {
     "AAVSOFilters": {
       "enum": [
-        "Vis.",
-        "N/A",
-        "RJ",
-        "IJ",
-        "HA",
-        "HAC",
-        "V",
-        "Blue-Vis.",
-        "Green-Vis.",
-        "Red-Vis.",
-        "Yellow-Vis.",
-        "K",
-        "H",
-        "J",
-        "SZ",
-        "B",
-        "STU",
-        "STV",
-        "STB",
-        "STY",
-        "STHBW",
-        "STHBN",
-        "R",
-        "SU",
-        "SG",
-        "SR",
-        "SI",
-        "ZS",
-        "Y",
-        "I",
-        "TB",
         "TG",
         "TR",
-        "MA",
-        "MB",
-        "MI",
-        "GG",
-        "Orange",
-        "U",
-        "CV",
-        "CR"
+        "TB",
+        "L3",
+        "L4"
       ],
       "title": "AAVSOFilters",
       "type": "string"
@@ -346,7 +310,7 @@
   "description": "Class to hold a list for which each entry is a star list.",
   "properties": {
     "schema_version": {
-      "default": "0.0.1.dev475+g682da6a.d20250514",
+      "default": "0.0.1.dev476+g6ec14ce.d20250514",
       "description": "An AAVSO-assigned string that identifies the schema version",
       "examples": [
         "0.0.1"
