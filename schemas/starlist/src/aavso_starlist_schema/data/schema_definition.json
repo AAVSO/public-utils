@@ -253,15 +253,6 @@
           "type": "number",
           "unit": "e-/adu"
         },
-        "epoch": {
-          "description": "Epoch of the observation",
-          "examples": [
-            "J2000"
-          ],
-          "title": "Reporting Epoch",
-          "type": "string",
-          "unit": "none"
-        },
         "refframe": {
           "description": "Reference frame of the observation",
           "examples": [
@@ -299,7 +290,6 @@
         "adc_depth",
         "largest_usable_adu_value",
         "egain",
-        "epoch",
         "refframe",
         "staritems"
       ],
@@ -310,7 +300,7 @@
   "description": "Class to hold a list for which each entry is a star list.",
   "properties": {
     "schema_version": {
-      "default": "0.0.1.dev476+g6ec14ce.d20250514",
+      "default": "0.0.1.dev477+gd587221.d20250514",
       "description": "An AAVSO-assigned string that identifies the schema version",
       "examples": [
         "0.0.1"

@@ -279,15 +279,6 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             examples=[1.2]
         )
     ]
-    epoch: Annotated[
-        str,
-        Field(
-            title="Reporting Epoch",
-            description="Epoch of the observation",
-            json_schema_extra=dict(unit="none"),
-            examples=["J2000"]
-        )
-    ]
     refframe: Annotated[
         str,
         Field(

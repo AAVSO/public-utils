@@ -27,7 +27,6 @@
 | A/D Converter Bit Depth | adc_depth | int | bit | Bit depth of the analog-to-digital converter | 14 |
 | Largest Usable ADU Value | largest_usable_adu_value | int | adu | Largest usable analog-to-digital unit value | 41000 |
 | System gain | egain | float | e-/adu | Gain of the camera in e-/adu | 1.2 |
-| Reporting Epoch | epoch | str | none | Epoch of the observation | J2000 |
 | Coordinate Reference Frame | refframe | str | none | Reference frame of the observation | ICRS |
 | Star Items | staritems | list | none | List of stars detected in the image | [] |
 
