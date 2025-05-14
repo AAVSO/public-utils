@@ -20,8 +20,9 @@ class PrettyPrintMixin:
         rows = ["| Title | JSON Field | Type | Unit | Description | Examples |"]
         rows.append("| --- | --- | --- | --- | --- | --- |")
         for name, field_info in cls.model_fields.items():
+            type_name = getattr(field_info.annotation, "__name__", field_info.annotation)
             row = (
-                f"| {field_info.title} | {name} | {field_info.annotation.__name__} "
+                f"| {field_info.title} | {name} | {type_name} "
                 f"| {field_info.json_schema_extra['unit']} "
                 f"| {field_info.description} | {field_info.examples[0]} |"
             )
@@ -231,6 +232,38 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             examples=["Celestron"]
         )
     ]
+    width : Annotated[
+        int,
+        Field(
+            gt=0,
+            title="Image Width",
+            description="Width of the image in pixels",
+            json_schema_extra=dict(unit="pixel"),
+            examples=[2048]
+        )
+    ]
+    height: Annotated[
+        int,
+        Field(
+            gt=0,
+            title="Image Height",
+            description="Height of the image in pixels",
+            json_schema_extra=dict(unit="pixel"),
+            examples=[1024]
+        )
+    ]
+    stack: Annotated[
+        int | None,
+        Field(
+            title="Number of images",
+            description=(
+                "Number of images stacked to create this image. "
+                "If not applicable, set to None."
+            ),
+            json_schema_extra=dict(unit="none"),
+            examples=[3]
+        )
+    ] = None
     tel_model: Annotated[
         str,
         Field(
@@ -277,6 +310,16 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             description="Gain of the camera in e-/adu",
             json_schema_extra=dict(unit="e-/adu"),
             examples=[1.2]
+        )
+    ]
+    fwhm: Annotated[
+        float,
+        Field(
+            gt=0,
+            title="FWHM",
+            description="Typical full width at half maximum of the star image",
+            json_schema_extra=dict(unit="pixel"),
+            examples=[3.5]
         )
     ]
     refframe: Annotated[

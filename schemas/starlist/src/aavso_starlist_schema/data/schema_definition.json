@@ -205,6 +205,43 @@
           "type": "string",
           "unit": "none"
         },
+        "width": {
+          "description": "Width of the image in pixels",
+          "examples": [
+            2048
+          ],
+          "exclusiveMinimum": 0,
+          "title": "Image Width",
+          "type": "integer",
+          "unit": "pixel"
+        },
+        "height": {
+          "description": "Height of the image in pixels",
+          "examples": [
+            1024
+          ],
+          "exclusiveMinimum": 0,
+          "title": "Image Height",
+          "type": "integer",
+          "unit": "pixel"
+        },
+        "stack": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Number of images stacked to create this image. If not applicable, set to None.",
+          "examples": [
+            3
+          ],
+          "title": "Number of images",
+          "unit": "none"
+        },
         "tel_model": {
           "description": "Model of the telescope",
           "examples": [
@@ -253,6 +290,16 @@
           "type": "number",
           "unit": "e-/adu"
         },
+        "fwhm": {
+          "description": "Typical full width at half maximum of the star image",
+          "examples": [
+            3.5
+          ],
+          "exclusiveMinimum": 0.0,
+          "title": "FWHM",
+          "type": "number",
+          "unit": "pixel"
+        },
         "refframe": {
           "description": "Reference frame of the observation",
           "examples": [
@@ -285,11 +332,14 @@
         "block_filter",
         "exposure",
         "tel_manufac",
+        "width",
+        "height",
         "tel_model",
         "tel_firmware",
         "adc_depth",
         "largest_usable_adu_value",
         "egain",
+        "fwhm",
         "refframe",
         "staritems"
       ],
@@ -300,7 +350,7 @@
   "description": "Class to hold a list for which each entry is a star list.",
   "properties": {
     "schema_version": {
-      "default": "0.0.1.dev477+gd587221.d20250514",
+      "default": "0.0.1.dev478+g2791e8a.d20250514",
       "description": "An AAVSO-assigned string that identifies the schema version",
       "examples": [
         "0.0.1"
