@@ -22,12 +22,15 @@
 | Blocking Filter | block_filter | str | none | Name of blocking filter used on telescope | UV+IR |
 | Exposure Time | exposure | float | second | Effective duration of exposure | 30.0 |
 | Telescope Manufacturer | tel_manufac | str | none | Name of the telescope manufacturer | Celestron |
+| Image Width | width | int | pixel | Width of the image in pixels | 2048 |
+| Image Height | height | int | pixel | Height of the image in pixels | 1024 |
+| Number of images | stack | int | None | none | Number of images stacked to create this image. If not applicable, set to None. | 3 |
 | Telescope Model | tel_model | str | none | Model of the telescope | Origin 1 |
 | Telescope Firmware | tel_firmware | str | none | Firmware version of the telescope | 20240817.01 |
 | A/D Converter Bit Depth | adc_depth | int | bit | Bit depth of the analog-to-digital converter | 14 |
 | Largest Usable ADU Value | largest_usable_adu_value | int | adu | Largest usable analog-to-digital unit value | 41000 |
-| Gain | gain | float | e-/adu | Gain of the camera | 1.2 |
-| Reporting Epoch | epoch | str | none | Epoch of the observation | J2000 |
+| System gain | egain | float | e-/adu | Gain of the camera in e-/adu | 1.2 |
+| FWHM | fwhm | float | pixel | Typical full width at half maximum of the star image | 3.5 |
 | Coordinate Reference Frame | refframe | str | none | Reference frame of the observation | ICRS |
 | Star Items | staritems | list | none | List of stars detected in the image | [] |
 
