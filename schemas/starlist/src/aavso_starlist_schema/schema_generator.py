@@ -269,12 +269,12 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             examples=[41000]
         )
     ]
-    gain: Annotated[
+    egain: Annotated[
         float,
         Field(
             ge=0,
-            title="Gain",
-            description="Gain of the camera",
+            title="System gain",
+            description="Gain of the camera in e-/adu",
             json_schema_extra=dict(unit="e-/adu"),
             examples=[1.2]
         )
