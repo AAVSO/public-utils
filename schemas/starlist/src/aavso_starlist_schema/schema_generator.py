@@ -96,27 +96,27 @@ class StarItem(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             examples=[-12.12345]
         )
     ]
-    tot_flux: Annotated[
+    tot_count: Annotated[
         float,
         Field(
             ge=0,
-            title="Star Flux",
+            title="Star Count",
             description="Total integrated counts of the star, background-subtracted",
             json_schema_extra=dict(unit="adu"),
             examples=[156700.4]
         )
     ]
-    flux_err: Annotated[
+    count_err: Annotated[
         float,
         Field(
             ge=0,
-            title="Flux Error",
+            title="Count Error",
             description="Error in the total integrated counts of the star",
             json_schema_extra=dict(unit="adu"),
             examples=[15300.1]
         )
     ]
-    bkgd_flux: Annotated[
+    bkgd_count: Annotated[
         float,
         Field(
             ge=0,
@@ -126,7 +126,7 @@ class StarItem(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             examples=[1209.45]
         )
     ]
-    peak_flux: Annotated[
+    peak_count: Annotated[
         float,
         Field(
             ge=0,

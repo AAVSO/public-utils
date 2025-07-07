@@ -77,10 +77,10 @@ def test_make_star_list_from_table_of_items():
             y=[23.4],
             ra=[123.6],
             dec=[43.4],
-            tot_flux=[100.0],
-            flux_err=[10.1],
-            bkgd_flux=[4.0],
-            peak_flux=[100.0],
+            tot_count=[100.0],
+            count_err=[10.1],
+            bkgd_count=[4.0],
+            peak_count=[100.0],
         )
     )
     # There are two ways to provide the "metadata", i.e. the non-StarItems
@@ -103,7 +103,7 @@ def test_make_star_list_from_table_of_items():
     # Check a couple of the star item properties
     assert len(sl.staritems) == 1
     assert sl.staritems[0].x == 12.6
-    assert sl.staritems[0].bkgd_flux == 4.0
+    assert sl.staritems[0].bkgd_count == 4.0
 
     # 2. Provide a Table that has the metadata
 
