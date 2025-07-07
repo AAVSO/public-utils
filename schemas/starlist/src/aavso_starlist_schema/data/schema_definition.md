@@ -46,7 +46,7 @@
 | Y-coordinate | y | float | pixel | Y-coordinate of the star center (in pixel coordinates) | 620.1 |
 | Right Ascension | ra | float | degree | Right Ascension of the star (in decimal degrees) at the epoch specified in the metadata | 212.56789 |
 | Declination | dec | float | degree | Declination of the star (in decimal degrees) at the epoch specified in the metadata | -12.12345 |
-| Star Flux | tot_flux | float | adu | Total integrated counts of the star, background-subtracted | 156700.4 |
-| Flux Error | flux_err | float | adu | Error in the total integrated counts of the star | 15300.1 |
-| Background counts | bkgd_flux | float | adu / pixel | Background count level in the vicinity of the star | 1209.45 |
-| Peak Counts | peak_flux | float | adu | Peak counts of the star | 31454.963 |
+| Star Count | tot_count | float | adu | Total integrated counts of the star, background-subtracted | 156700.4 |
+| Count Error | count_err | float | adu | Error in the total integrated counts of the star | 15300.1 |
+| Background counts | bkgd_count | float | adu / pixel | Background count level in the vicinity of the star | 1209.45 |
+| Peak Counts | peak_count | float | adu | Peak counts of the star | 31454.963 |
