@@ -119,7 +119,6 @@ class StarItem(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     bkgd_count: Annotated[
         float,
         Field(
-            ge=0,
             title="Background counts",
             description="Background count level in the vicinity of the star",
             json_schema_extra=dict(unit="adu / pixel"),
