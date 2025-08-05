@@ -81,7 +81,6 @@
           "examples": [
             1209.45
           ],
-          "minimum": 0.0,
           "title": "Background counts",
           "type": "number",
           "unit": "adu / pixel"
