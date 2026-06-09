@@ -3,7 +3,7 @@ from pathlib import Path
 
 from pydantic.alias_generators import to_snake
 
-from st_pipeline.schema_definition.schema_generator import (
+from .schema_generator import (
     StarItem,
     StarList,
     StarListSet,
@@ -51,7 +51,7 @@ def main(filename, markdown=False):
         f.write(content)
 
 
-if __name__ == "__main__":
+def cli():
     parser = ArgumentParser(
         description=(
             "Generate schema as either JSON or markdown table. "
@@ -75,3 +75,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     main(args.filename, args.markdown)
+
+
+if __name__ == "__main__":
+    cli()

@@ -1,0 +1,73 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aavso-starlist-schema"
+dynamic = ["version"]
+description = "JSON-schema definition and generators for AAVSO smart-telescope starlists"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "AAVSO", email = "aavso@aavso.org" }]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: Implementation :: CPython",
+]
+dependencies = [
+  "astropy",
+  "pydantic>=2",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest",
+  "pytest-astropy",
+]
+dev = [
+  "aavso-starlist-schema[test]",
+  "hatch-vcs",
+  "ruff",
+]
+
+[project.scripts]
+aavso-starlist-schema = "aavso_starlist_schema.schema_script:cli"
+
+[project.urls]
+Source = "https://github.com/AAVSO/aavso-starlist-schema"
+Issues = "https://github.com/AAVSO/aavso-starlist-schema/issues"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/aavso_starlist_schema/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aavso_starlist_schema"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "W",
+    "F",
+    "N",
+    "ARG",
+    "UP",
+    "NPY",
+    "I",
+    "B",
+]
+ignore = [
+    "E501",  # line too long
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Ignore import violations in __init__.py files (re-exports via star imports).
+"__init__.py" = ["E402", "F403"]

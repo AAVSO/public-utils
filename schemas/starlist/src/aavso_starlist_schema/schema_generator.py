@@ -5,7 +5,7 @@ from typing import Annotated
 from astropy.table import Table
 from pydantic import BaseModel, Field
 
-from .. import __version__
+from . import __version__
 from .passband_names import AAVSOFilters
 
 __all__ = ["StarItem", "StarList", "StarListSet", "generate_starlist_schema", "generate_star_list_set_schema"]

@@ -1,0 +1,15 @@
+# hatch-vcs generated version file
+src/aavso_starlist_schema/_version.py
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Build artifacts
+dist/
+build/
+
+# uv / virtualenv
+.venv/

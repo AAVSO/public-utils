@@ -28,7 +28,7 @@
           "examples": [
             1206.78
           ],
-          "minimum": 0.0,
+          "minimum": 0,
           "title": "X-coordinate",
           "type": "number",
           "unit": "pixel"
@@ -38,7 +38,7 @@
           "examples": [
             620.1
           ],
-          "minimum": 0.0,
+          "minimum": 0,
           "title": "Y-coordinate",
           "type": "number",
           "unit": "pixel"
@@ -48,8 +48,8 @@
           "examples": [
             212.56789
           ],
-          "exclusiveMaximum": 360.0,
-          "minimum": 0.0,
+          "exclusiveMaximum": 360,
+          "minimum": 0,
           "title": "Right Ascension",
           "type": "number",
           "unit": "degree"
@@ -59,8 +59,8 @@
           "examples": [
             -12.12345
           ],
-          "maximum": 90.0,
-          "minimum": -90.0,
+          "maximum": 90,
+          "minimum": -90,
           "title": "Declination",
           "type": "number",
           "unit": "degree"
@@ -70,7 +70,7 @@
           "examples": [
             156700.4
           ],
-          "minimum": 0.0,
+          "minimum": 0,
           "title": "Star Count",
           "type": "number",
           "unit": "adu"
@@ -80,7 +80,7 @@
           "examples": [
             15300.1
           ],
-          "minimum": 0.0,
+          "minimum": 0,
           "title": "Count Error",
           "type": "number",
           "unit": "adu"
@@ -99,7 +99,7 @@
           "examples": [
             31454.963
           ],
-          "minimum": 0.0,
+          "minimum": 0,
           "title": "Peak Counts",
           "type": "number",
           "unit": "adu"
@@ -137,8 +137,8 @@
           "examples": [
             -41.56896
           ],
-          "maximum": 90.0,
-          "minimum": -90.0,
+          "maximum": 90,
+          "minimum": -90,
           "title": "Site Latitude",
           "type": "number",
           "unit": "degree"
@@ -148,8 +148,8 @@
           "examples": [
             -71.23841
           ],
-          "maximum": 180.0,
-          "minimum": -180.0,
+          "maximum": 180,
+          "minimum": -180,
           "title": "Site Longitude",
           "type": "number",
           "unit": "degree"
@@ -173,11 +173,7 @@
           "unit": "none"
         },
         "filter": {
-          "allOf": [
-            {
-              "$ref": "#/$defs/AAVSOFilters"
-            }
-          ],
+          "$ref": "#/$defs/AAVSOFilters",
           "description": "Filter used for the observation, from https://www.aavso.org/filters",
           "examples": [
             "TG"
@@ -199,7 +195,7 @@
           "examples": [
             30.0
           ],
-          "minimum": 0.0,
+          "minimum": 0,
           "title": "Exposure Time",
           "type": "number",
           "unit": "second"
@@ -293,7 +289,7 @@
           "examples": [
             1.2
           ],
-          "minimum": 0.0,
+          "minimum": 0,
           "title": "System gain",
           "type": "number",
           "unit": "e-/adu"
@@ -303,7 +299,7 @@
           "examples": [
             3.5
           ],
-          "exclusiveMinimum": 0.0,
+          "exclusiveMinimum": 0,
           "title": "FWHM",
           "type": "number",
           "unit": "pixel"
@@ -358,7 +354,7 @@
   "description": "Class to hold a list for which each entry is a star list.",
   "properties": {
     "schema_version": {
-      "default": "0.0.1.dev621+gee4bda698",
+      "default": "0.1.dev63+g61de51202.d20260609",
       "description": "An AAVSO-assigned string that identifies the schema version",
       "examples": [
         "0.0.1"

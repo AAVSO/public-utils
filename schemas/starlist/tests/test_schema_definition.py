@@ -4,14 +4,14 @@ import pytest
 from astropy.table import Table
 from astropy.utils.data import get_pkg_data_filename
 
-from st_pipeline import __version__
-from st_pipeline.schema_definition import (
+from aavso_starlist_schema import __version__
+from aavso_starlist_schema import (
     StarItem,
     StarList,
     StarListSet,
     generate_star_list_set_schema,
 )
-from st_pipeline.schema_definition.schema_script import _generate_markdown
+from aavso_starlist_schema.schema_script import _generate_markdown
 
 
 @pytest.mark.parametrize("klass", [StarItem, StarList, StarListSet])
@@ -42,7 +42,7 @@ def test_example_values_are_valid(klass):
 def test_starlist_markdown_table():
     mdown_file = get_pkg_data_filename(
         "data/schema_definition.md",
-        package="st_pipeline.schema_definition"
+        package="aavso_starlist_schema"
     )
     with open(mdown_file) as f:
         mdown_file_content = f.read()
@@ -53,7 +53,7 @@ def test_starlist_markdown_table():
 def test_starlist_json():
     json_file = get_pkg_data_filename(
         "data/schema_definition.json",
-        package="st_pipeline.schema_definition"
+        package="aavso_starlist_schema"
     )
 
     with open(json_file) as f:
