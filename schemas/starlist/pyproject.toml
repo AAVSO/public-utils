@@ -52,6 +52,17 @@ packages = ["src/aavso_starlist_schema"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+[tool.coverage.run]
+source_pkgs = ["aavso_starlist_schema"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+  "no cov",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+]
+
 [tool.ruff.lint]
 select = [
     "E",

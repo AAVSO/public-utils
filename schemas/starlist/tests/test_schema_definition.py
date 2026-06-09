@@ -10,8 +10,9 @@ from aavso_starlist_schema import (
     StarList,
     StarListSet,
     generate_star_list_set_schema,
+    generate_starlist_schema,
 )
-from aavso_starlist_schema.schema_script import _generate_markdown
+from aavso_starlist_schema.schema_script import _generate_markdown, cli, main
 
 
 @pytest.mark.parametrize("klass", [StarItem, StarList, StarListSet])
@@ -169,3 +170,45 @@ def test_make_table_from_starlist():
 
     for key in star_item_dict:
         assert table[key][0] == star_item_dict[key]
+
+
+def test_generate_starlist_schema_is_valid_json():
+    # The single-StarList schema generator should produce parseable JSON
+    # whose top-level object describes the StarList model.
+    schema = json.loads(generate_starlist_schema())
+    assert schema["title"] == "StarList"
+    assert "staritems" in schema["properties"]
+
+
+def test_main_writes_json(tmp_path):
+    # main() should write the StarListSet JSON schema, adding the .json suffix.
+    out = tmp_path / "schema"
+    main(str(out))
+
+    json_path = out.with_suffix(".json")
+    assert json_path.exists()
+    written = json.loads(json_path.read_text())
+    assert json.loads(generate_star_list_set_schema()) == written
+
+
+def test_main_writes_markdown(tmp_path):
+    # main(markdown=True) should write the markdown table, adding the .md suffix.
+    out = tmp_path / "schema"
+    main(str(out), markdown=True)
+
+    md_path = out.with_suffix(".md")
+    assert md_path.exists()
+    assert md_path.read_text() == _generate_markdown()
+
+
+@pytest.mark.parametrize("markdown_flag, suffix", [([], ".json"), (["--markdown"], ".md")])
+def test_cli_writes_file(tmp_path, monkeypatch, markdown_flag, suffix):
+    # The console-script entry point parses argv and writes the requested format.
+    out = tmp_path / "from_cli"
+    monkeypatch.setattr("sys.argv", ["aavso-starlist-schema", *markdown_flag, str(out)])
+
+    cli()
+
+    expected = out.with_suffix(suffix)
+    assert expected.exists()
+    assert expected.read_text()
