@@ -19,6 +19,7 @@ classifiers = [
 ]
 dependencies = [
   "astropy",
+  "fire",
   "pydantic>=2",
 ]
 
@@ -34,7 +35,7 @@ dev = [
 ]
 
 [project.scripts]
-aavso-starlist-schema = "aavso_starlist_schema.schema_script:cli"
+aavso-starlist-schema = "aavso_starlist_schema:cli"
 
 [project.urls]
 Source = "https://github.com/AAVSO/aavso-starlist-schema"
@@ -44,16 +45,16 @@ Issues = "https://github.com/AAVSO/aavso-starlist-schema/issues"
 source = "vcs"
 
 [tool.hatch.build.hooks.vcs]
-version-file = "src/aavso_starlist_schema/_version.py"
+version-file = "_aavso_version.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/aavso_starlist_schema"]
+include = ["aavso_starlist_schema.py", "_aavso_version.py", "data/**"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
 [tool.coverage.run]
-source_pkgs = ["aavso_starlist_schema"]
+source = ["aavso_starlist_schema"]
 branch = true
 
 [tool.coverage.report]
@@ -78,7 +79,3 @@ select = [
 ignore = [
     "E501",  # line too long
 ]
-
-[tool.ruff.lint.per-file-ignores]
-# Ignore import violations in __init__.py files (re-exports via star imports).
-"__init__.py" = ["E402", "F403"]

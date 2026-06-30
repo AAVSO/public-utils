@@ -1,14 +1,59 @@
+"""JSON-schema definition and generators for AAVSO smart-telescope starlists.
+
+This single-file module defines the pydantic models that describe an AAVSO Smart
+Telescope starlist (``StarItem``, ``StarList``, ``StarListSet``), helpers to emit
+the schema as JSON or as a markdown table, and a Fire-based command-line entry
+point.
+"""
+
 import json
 from collections import defaultdict
+from enum import StrEnum
+from pathlib import Path
 from typing import Annotated
 
 from astropy.table import Table
 from pydantic import BaseModel, Field
+from pydantic.alias_generators import to_snake
 
-from . import __version__
-from .passband_names import AAVSOFilters
+try:
+    from _aavso_version import __version__  # top-level sibling, written by hatch-vcs
+except ImportError:  # pragma: no cover - source tree without the generated file
+    __version__ = "0.0.0"
 
-__all__ = ["StarItem", "StarList", "StarListSet", "generate_starlist_schema", "generate_star_list_set_schema"]
+__all__ = [
+    "AAVSOFilters",
+    "StarItem",
+    "StarList",
+    "StarListSet",
+    "generate_starlist_schema",
+    "generate_star_list_set_schema",
+    "main",
+    "cli",
+    "DATA_DIR",
+]
+
+# Reference schema files (a shipped deliverable) live alongside this module, both
+# in the source tree and in an installed wheel.
+DATA_DIR = Path(__file__).parent / "data"
+
+
+# Restricted list that smart telescopes may report
+class AAVSOFilters(StrEnum):
+    TG = "TG"
+    TR = "TR"
+    TB = "TB"
+    L3 = "L3"
+    L4 = "L4"
+    B = "B"
+    V = "V"
+    R = "R"
+    I = "I"  # noqa: E741 - AAVSO filter name (Cousins I), not an ambiguous identifier
+    SG = "SG"
+    SR = "SR"
+    SI = "SI"
+    CR = "CR"
+    CV = "CV"
 
 
 class PrettyPrintMixin:
@@ -442,3 +487,53 @@ def generate_starlist_schema():
 
 def generate_star_list_set_schema():
     return json.dumps(StarListSet.model_json_schema(), indent=2)
+
+
+def _nice_name(name):
+    # Convert the name to snake case
+    snake_name = to_snake(name)
+    return snake_name.replace("_", " ").title()
+
+
+def _generate_markdown():
+    """
+    Generate document with the container class, StarListSet, up at top,
+    followed by the individual StarList StarItem classes.
+
+    That reads a little better than the other way around.
+    """
+    return (
+        "# " + _nice_name(StarListSet.__name__) + "\n\n" +
+        StarListSet.markdown_table() + 3 * "\n\n" +
+        "# " + _nice_name(StarList.__name__) + "\n\n" +
+        StarList.markdown_table() + 3 * "\n\n" +
+        "# " + _nice_name(StarItem.__name__) + "\n\n" +
+        StarItem.markdown_table() +
+        # Please please end with a single newline....many editors will add one
+        # automatically, so it should be there.
+        "\n"
+    )
+
+
+def main(filename, markdown=False):
+    extension = ".md" if markdown else ".json"
+    # Make sure the path has the right suffix
+    p = Path(filename).with_suffix(extension)
+
+    if markdown:
+        content = _generate_markdown()
+    else:
+        content = generate_star_list_set_schema()
+
+    with p.open("w") as f:
+        f.write(content)
+
+
+def cli():
+    import fire  # lazy import: keep `import aavso_starlist_schema` fire-free
+
+    fire.Fire(main)
+
+
+if __name__ == "__main__":
+    cli()

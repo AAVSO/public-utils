@@ -2,17 +2,19 @@ import json
 
 import pytest
 from astropy.table import Table
-from astropy.utils.data import get_pkg_data_filename
 
-from aavso_starlist_schema import __version__
 from aavso_starlist_schema import (
+    DATA_DIR,
     StarItem,
     StarList,
     StarListSet,
+    __version__,
+    _generate_markdown,
+    cli,
     generate_star_list_set_schema,
     generate_starlist_schema,
+    main,
 )
-from aavso_starlist_schema.schema_script import _generate_markdown, cli, main
 
 
 @pytest.mark.parametrize("klass", [StarItem, StarList, StarListSet])
@@ -41,10 +43,7 @@ def test_example_values_are_valid(klass):
 
 
 def test_starlist_markdown_table():
-    mdown_file = get_pkg_data_filename(
-        "data/schema_definition.md",
-        package="aavso_starlist_schema"
-    )
+    mdown_file = DATA_DIR / "schema_definition.md"
     with open(mdown_file) as f:
         mdown_file_content = f.read()
 
@@ -52,10 +51,7 @@ def test_starlist_markdown_table():
 
 
 def test_starlist_json():
-    json_file = get_pkg_data_filename(
-        "data/schema_definition.json",
-        package="aavso_starlist_schema"
-    )
+    json_file = DATA_DIR / "schema_definition.json"
 
     with open(json_file) as f:
         expected_content = json.load(f)
@@ -204,8 +200,10 @@ def test_main_writes_markdown(tmp_path):
 @pytest.mark.parametrize("markdown_flag, suffix", [([], ".json"), (["--markdown"], ".md")])
 def test_cli_writes_file(tmp_path, monkeypatch, markdown_flag, suffix):
     # The console-script entry point parses argv and writes the requested format.
+    # Fire binds a value following a bool flag to that flag, so the positional
+    # filename comes first and --markdown is a trailing standalone flag.
     out = tmp_path / "from_cli"
-    monkeypatch.setattr("sys.argv", ["aavso-starlist-schema", *markdown_flag, str(out)])
+    monkeypatch.setattr("sys.argv", ["aavso-starlist-schema", str(out), *markdown_flag])
 
     cli()
 
