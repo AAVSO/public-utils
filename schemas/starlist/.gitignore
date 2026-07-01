@@ -1,5 +1,5 @@
 # hatch-vcs generated version file
-src/aavso_starlist_schema/_version.py
+_aavso_version.py
 
 # Python
 __pycache__/
