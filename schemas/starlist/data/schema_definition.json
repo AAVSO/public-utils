@@ -1,0 +1,384 @@
+{
+  "$defs": {
+    "AAVSOFilters": {
+      "enum": [
+        "TG",
+        "TR",
+        "TB",
+        "L3",
+        "L4",
+        "B",
+        "V",
+        "R",
+        "I",
+        "SG",
+        "SR",
+        "SI",
+        "CR",
+        "CV"
+      ],
+      "title": "AAVSOFilters",
+      "type": "string"
+    },
+    "StarItem": {
+      "description": "Definition of individual entries in an AAVSO star list.",
+      "properties": {
+        "x": {
+          "description": "X-coordinate of the star center (in pixel coordinates)",
+          "examples": [
+            1206.78
+          ],
+          "minimum": 0,
+          "title": "X-coordinate",
+          "type": "number",
+          "unit": "pixel"
+        },
+        "y": {
+          "description": "Y-coordinate of the star center (in pixel coordinates)",
+          "examples": [
+            620.1
+          ],
+          "minimum": 0,
+          "title": "Y-coordinate",
+          "type": "number",
+          "unit": "pixel"
+        },
+        "ra": {
+          "description": "Right Ascension of the star (in decimal degrees) at the epoch specified in the metadata",
+          "examples": [
+            212.56789
+          ],
+          "exclusiveMaximum": 360,
+          "minimum": 0,
+          "title": "Right Ascension",
+          "type": "number",
+          "unit": "degree"
+        },
+        "dec": {
+          "description": "Declination of the star (in decimal degrees) at the epoch specified in the metadata",
+          "examples": [
+            -12.12345
+          ],
+          "maximum": 90,
+          "minimum": -90,
+          "title": "Declination",
+          "type": "number",
+          "unit": "degree"
+        },
+        "tot_count": {
+          "description": "Total integrated counts of the star, background-subtracted",
+          "examples": [
+            156700.4
+          ],
+          "minimum": 0,
+          "title": "Star Count",
+          "type": "number",
+          "unit": "adu"
+        },
+        "count_err": {
+          "description": "Error in the total integrated counts of the star",
+          "examples": [
+            15300.1
+          ],
+          "minimum": 0,
+          "title": "Count Error",
+          "type": "number",
+          "unit": "adu"
+        },
+        "bkgd_count": {
+          "description": "Background count level in the vicinity of the star",
+          "examples": [
+            1209.45
+          ],
+          "title": "Background counts",
+          "type": "number",
+          "unit": "adu / pixel"
+        },
+        "peak_count": {
+          "description": "Peak counts of the star",
+          "examples": [
+            31454.963
+          ],
+          "minimum": 0,
+          "title": "Peak Counts",
+          "type": "number",
+          "unit": "adu"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "ra",
+        "dec",
+        "tot_count",
+        "count_err",
+        "bkgd_count",
+        "peak_count"
+      ],
+      "title": "StarItem",
+      "type": "object"
+    },
+    "StarList": {
+      "description": "Definition of the header section of an AAVSO star list schema.",
+      "properties": {
+        "obs_time": {
+          "description": "UTC time at start of observation",
+          "examples": [
+            "2021-06-15T03:45:00"
+          ],
+          "format": "date-time",
+          "scale": "UTC",
+          "title": "Observation Start Time",
+          "type": "string",
+          "unit": null
+        },
+        "site_lat": {
+          "description": "Latitude of the observing site",
+          "examples": [
+            -41.56896
+          ],
+          "maximum": 90,
+          "minimum": -90,
+          "title": "Site Latitude",
+          "type": "number",
+          "unit": "degree"
+        },
+        "site_lon": {
+          "description": "Longitude of the observing site",
+          "examples": [
+            -71.23841
+          ],
+          "maximum": 180,
+          "minimum": -180,
+          "title": "Site Longitude",
+          "type": "number",
+          "unit": "degree"
+        },
+        "site_elev": {
+          "description": "Observer's elevation above mean sea level",
+          "examples": [
+            211.0
+          ],
+          "title": "Site Elevation",
+          "type": "number",
+          "unit": "meter"
+        },
+        "observer": {
+          "description": "AAVSO code of the observer",
+          "examples": [
+            "MMU"
+          ],
+          "title": "Observer Code",
+          "type": "string",
+          "unit": "none"
+        },
+        "filter": {
+          "$ref": "#/$defs/AAVSOFilters",
+          "description": "Filter used for the observation, from https://www.aavso.org/filters",
+          "examples": [
+            "TG"
+          ],
+          "title": "Filter",
+          "unit": "none"
+        },
+        "block_filter": {
+          "description": "Name of blocking filter used on telescope",
+          "examples": [
+            "UV+IR"
+          ],
+          "title": "Blocking Filter",
+          "type": "string",
+          "unit": "none"
+        },
+        "exposure": {
+          "description": "Effective duration of exposure",
+          "examples": [
+            30.0
+          ],
+          "minimum": 0,
+          "title": "Exposure Time",
+          "type": "number",
+          "unit": "second"
+        },
+        "tel_manufac": {
+          "description": "Name of the telescope manufacturer",
+          "examples": [
+            "Celestron"
+          ],
+          "title": "Telescope Manufacturer",
+          "type": "string",
+          "unit": "none"
+        },
+        "width": {
+          "description": "Width of the image in pixels",
+          "examples": [
+            2048
+          ],
+          "exclusiveMinimum": 0,
+          "title": "Image Width",
+          "type": "integer",
+          "unit": "pixel"
+        },
+        "height": {
+          "description": "Height of the image in pixels",
+          "examples": [
+            1024
+          ],
+          "exclusiveMinimum": 0,
+          "title": "Image Height",
+          "type": "integer",
+          "unit": "pixel"
+        },
+        "stack": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Number of images stacked to create this image. If not applicable, set to None.",
+          "examples": [
+            3
+          ],
+          "title": "Number of images",
+          "unit": "none"
+        },
+        "tel_model": {
+          "description": "Model of the telescope",
+          "examples": [
+            "Origin 1"
+          ],
+          "title": "Telescope Model",
+          "type": "string",
+          "unit": "none"
+        },
+        "tel_firmware": {
+          "description": "Firmware version of the telescope",
+          "examples": [
+            "20240817.01"
+          ],
+          "title": "Telescope Firmware",
+          "type": "string",
+          "unit": "none"
+        },
+        "adc_depth": {
+          "description": "Bit depth of the analog-to-digital converter",
+          "examples": [
+            14
+          ],
+          "minimum": 0,
+          "title": "A/D Converter Bit Depth",
+          "type": "integer",
+          "unit": "bit"
+        },
+        "largest_usable_adu_value": {
+          "description": "Largest usable analog-to-digital unit value",
+          "examples": [
+            41000
+          ],
+          "minimum": 0,
+          "title": "Largest Usable ADU Value",
+          "type": "integer",
+          "unit": "adu"
+        },
+        "egain": {
+          "description": "Gain of the camera in e-/adu",
+          "examples": [
+            1.2
+          ],
+          "minimum": 0,
+          "title": "System gain",
+          "type": "number",
+          "unit": "e-/adu"
+        },
+        "fwhm": {
+          "description": "Typical full width at half maximum of the star image",
+          "examples": [
+            3.5
+          ],
+          "exclusiveMinimum": 0,
+          "title": "FWHM",
+          "type": "number",
+          "unit": "pixel"
+        },
+        "refframe": {
+          "description": "Reference frame of the observation",
+          "examples": [
+            "ICRS"
+          ],
+          "title": "Coordinate Reference Frame",
+          "type": "string",
+          "unit": "none"
+        },
+        "staritems": {
+          "description": "List of stars detected in the image",
+          "examples": [
+            []
+          ],
+          "items": {
+            "$ref": "#/$defs/StarItem"
+          },
+          "title": "Star Items",
+          "type": "array",
+          "unit": "none"
+        }
+      },
+      "required": [
+        "obs_time",
+        "site_lat",
+        "site_lon",
+        "site_elev",
+        "observer",
+        "filter",
+        "block_filter",
+        "exposure",
+        "tel_manufac",
+        "width",
+        "height",
+        "tel_model",
+        "tel_firmware",
+        "adc_depth",
+        "largest_usable_adu_value",
+        "egain",
+        "fwhm",
+        "refframe",
+        "staritems"
+      ],
+      "title": "StarList",
+      "type": "object"
+    }
+  },
+  "description": "Class to hold a list for which each entry is a star list.",
+  "properties": {
+    "schema_version": {
+      "default": "0.1.dev63+g61de51202.d20260609",
+      "description": "An AAVSO-assigned string that identifies the schema version",
+      "examples": [
+        "0.0.1"
+      ],
+      "title": "Starlist Schema Version",
+      "type": "string",
+      "unit": "none"
+    },
+    "star_lists": {
+      "description": "List of star lists",
+      "examples": [
+        []
+      ],
+      "items": {
+        "$ref": "#/$defs/StarList"
+      },
+      "title": "Star List Set",
+      "type": "array",
+      "unit": "none"
+    }
+  },
+  "required": [
+    "star_lists"
+  ],
+  "title": "StarListSet",
+  "type": "object"
+}

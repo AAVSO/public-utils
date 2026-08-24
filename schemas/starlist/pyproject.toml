@@ -1,0 +1,87 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aavso-starlist-schema"
+dynamic = ["version"]
+description = "JSON-schema definition and generators for AAVSO smart-telescope starlists"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "AAVSO", email = "aavso@aavso.org" }]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: Implementation :: CPython",
+]
+dependencies = [
+  "astropy",
+  "fire",
+  "pydantic>=2",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest",
+  "pytest-astropy",
+]
+dev = [
+  "aavso-starlist-schema[test]",
+  "hatch-vcs",
+  "ruff",
+]
+
+[project.scripts]
+aavso-starlist-schema = "aavso_starlist_schema:cli"
+
+[project.urls]
+Source = "https://github.com/AAVSO/public-utils"
+Issues = "https://github.com/AAVSO/public-utils/issues"
+
+[tool.hatch.version]
+source = "vcs"
+tag-pattern = "^aavso-starlist-schema-v(?P<version>.+)$"
+raw-options = { search_parent_directories = true, git_describe_command = [
+  "git", "describe", "--dirty", "--tags", "--long",
+  "--match", "aavso-starlist-schema-v*",
+] }
+
+[tool.hatch.build.hooks.vcs]
+version-file = "_aavso_version.py"
+
+[tool.hatch.build.targets.wheel]
+include = ["aavso_starlist_schema.py", "_aavso_version.py", "data/**"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["aavso_starlist_schema"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+  "no cov",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "W",
+    "F",
+    "N",
+    "ARG",
+    "UP",
+    "NPY",
+    "I",
+    "B",
+]
+ignore = [
+    "E501",  # line too long
+]
