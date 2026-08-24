@@ -13,3 +13,6 @@ build/
 
 # uv / virtualenv
 .venv/
+
+# Coverage
+.coverage

@@ -39,11 +39,16 @@ dev = [
 aavso-starlist-schema = "aavso_starlist_schema:cli"
 
 [project.urls]
-Source = "https://github.com/AAVSO/aavso-starlist-schema"
-Issues = "https://github.com/AAVSO/aavso-starlist-schema/issues"
+Source = "https://github.com/AAVSO/public-utils"
+Issues = "https://github.com/AAVSO/public-utils/issues"
 
 [tool.hatch.version]
 source = "vcs"
+tag-pattern = "^aavso-starlist-schema-v(?P<version>.+)$"
+raw-options = { search_parent_directories = true, git_describe_command = [
+  "git", "describe", "--dirty", "--tags", "--long",
+  "--match", "aavso-starlist-schema-v*",
+] }
 
 [tool.hatch.build.hooks.vcs]
 version-file = "_aavso_version.py"
