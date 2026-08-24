@@ -3,8 +3,14 @@ name: Tests
 on:
   push:
     branches: [main]
+    paths:
+      - 'schemas/starlist/**'
+      - '.github/workflows/starlist-tests.yml'
   pull_request:
     branches: [main]
+    paths:
+      - 'schemas/starlist/**'
+      - '.github/workflows/starlist-tests.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -16,6 +22,9 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
+    defaults:
+      run:
+        working-directory: schemas/starlist
     steps:
       - uses: actions/checkout@v4
         with:
