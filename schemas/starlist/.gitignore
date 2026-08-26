@@ -1,0 +1,18 @@
+# hatch-vcs generated version file
+_aavso_version.py
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Build artifacts
+dist/
+build/
+
+# uv / virtualenv
+.venv/
+
+# Coverage
+.coverage
