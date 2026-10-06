@@ -3,6 +3,7 @@ import re
 
 import pytest
 from astropy.table import Table
+from pydantic import ValidationError
 
 from aavso_starlist_schema import (
     DATA_DIR,
@@ -70,6 +71,42 @@ def test_absolute_focus_is_kept_when_present():
 
     assert star_list.absolute_focus == 1823.0
     assert StarList.model_validate_json(star_list.model_dump_json()).absolute_focus == 1823.0
+
+
+def test_photometry_software_is_required_in_a_current_file():
+    # A file at the current version must give photometry_software for every
+    # star list. It is not upgraded, so without a warning (pytest treats an
+    # unexpected SchemaMigrationWarning as an error), and the field is not
+    # filled in for it.
+    star_list = StarList.from_examples().model_dump(mode="json")
+    del star_list["photometry_software"]
+    data = {"schema_version": SCHEMA_VERSION, "star_lists": [star_list]}
+
+    assert "photometry_software" in StarList.model_json_schema()["required"]
+    with pytest.raises(ValidationError, match="photometry_software"):
+        StarListSet.model_validate(data)
+
+
+@pytest.mark.parametrize("value", [[], [""], ["bandaid 1.2.3", ""]])
+def test_photometry_software_rejects_empty_values(value):
+    # photometry_software needs at least one entry, and no entry may be empty.
+    data = StarList.from_examples().model_dump()
+    data["photometry_software"] = value
+
+    with pytest.raises(ValidationError, match="photometry_software"):
+        StarList.model_validate(data)
+
+
+def test_photometry_software_survives_a_table_round_trip():
+    # photometry_software is carried in the table metadata, so a star list
+    # turned into a table and back keeps it.
+    star_list = StarList.from_examples()
+    star_list.staritems = [StarItem.from_examples()]
+
+    result = StarList.from_table(star_list.to_table())
+
+    assert result.photometry_software == ["bandaid 1.2.3", "browser-photometry 4.5.6"]
+    assert result == star_list
 
 
 def _count_cells(row):

@@ -10,6 +10,7 @@ import pytest
 from pydantic import ValidationError
 
 import _aavso_starlist_legacy
+import _aavso_starlist_v0_2
 from aavso_starlist_schema import (
     _MIGRATIONS,
     SCHEMA_VERSION,
@@ -154,7 +155,9 @@ def test_legacy_versions_are_upgraded_with_warning(version):
     message = str(record[0].message)
     assert ("missing" if version is None else version) in message
     assert SCHEMA_VERSION in message
-    assert _MIGRATIONS["legacy"].summary in message
+    # A legacy file goes through every migration, so the warning names each.
+    for step in _MIGRATIONS.values():
+        assert step.summary in message
 
     assert result["schema_version"] == SCHEMA_VERSION
 
@@ -258,10 +261,10 @@ def test_each_migration_step_receives_data_stamped_with_its_source_version(mocke
 def test_gap_in_migration_chain_names_the_generation_without_a_migration(mocker):
     # A breaking bump whose migration out of the generation being left has not
     # been written yet must say so, not fail with a bare KeyError. Simulate a
-    # bump to 1.0.0 with no migration out of 0.2: a legacy file still has its
-    # first step, then has nowhere to go.
+    # bump to 1.0.0 with no migration out of 0.3: a legacy file still has its
+    # steps to 0.2 and 0.3, then has nowhere to go.
     mocker.patch("aavso_starlist_schema.SCHEMA_VERSION", "1.0.0")
-    expected = "no migration out of schema generation '0.2'"
+    expected = "no migration out of schema generation '0.3'"
 
     with pytest.raises(UnsupportedSchemaVersionError, match=expected):
         upgrade({"star_lists": []})
@@ -612,6 +615,9 @@ def test_model_upgrades_legacy_data_built_in_python(shape):
     # Data the frozen model accepts in a shape JSON cannot give is converted to
     # plain data before migrating, so it upgrades like the same file read from
     # JSON instead of being rejected by the current model as a migration bug.
+    # This is the end-to-end check. The 0.2 to 0.3 migration also copes with
+    # these shapes itself, so it is the next test, which records what each
+    # migration receives, that pins the conversion.
     with pytest.warns(SchemaMigrationWarning):
         expected = StarListSet.model_validate_json(json.dumps(_legacy_data_json()))
     with pytest.warns(SchemaMigrationWarning):
@@ -625,35 +631,60 @@ def test_model_upgrades_legacy_data_built_in_python(shape):
 
 @pytest.mark.parametrize("shape", ["instances", "tuple", "mapping", "enum"])
 def test_migration_reached_through_the_model_sees_only_plain_data(shape, mocker):
-    # Through the model a migration only ever sees what JSON text would give,
-    # whatever shape the caller built the data in.
+    # Through the model every migration in the chain, not only the first, sees
+    # only what JSON text would give, whatever shape the caller built the data
+    # in. A legacy file passes through every registered migration.
     seen = []
 
-    def _record_argument(data):
+    def _recording(func):
         """
-        Record the argument a stand-in migration receives.
+        Wrap a migration so that it records the argument it receives.
 
         Parameters
         ----------
-        data : dict
-            Raw starlist-set data.
+        func : callable
+            The real migration function.
 
         Returns
         -------
-        dict
-            ``data`` unchanged.
+        callable
+            A function that records a deep copy of its argument, then
+            returns what ``func`` returns for it.
         """
-        seen.append(copy.deepcopy(data))
-        return data
 
-    legacy = _MIGRATIONS["legacy"]
-    mocker.patch.dict(_MIGRATIONS, {"legacy": legacy._replace(func=_record_argument)})
+        def _record_argument(data):
+            """
+            Record the argument, then run the real migration on it.
+
+            Parameters
+            ----------
+            data : dict
+                Raw starlist-set data.
+
+            Returns
+            -------
+            dict
+                The result of the real migration.
+            """
+            seen.append(copy.deepcopy(data))
+            return func(data)
+
+        return _record_argument
+
+    mocker.patch.dict(
+        _MIGRATIONS,
+        {
+            generation: step._replace(func=_recording(step.func))
+            for generation, step in _MIGRATIONS.items()
+        },
+    )
 
     with pytest.warns(SchemaMigrationWarning):
         StarListSet.model_validate(_legacy_python_data(shape))
 
-    assert len(seen) == 1
-    _assert_plain(seen[0])
+    assert len(seen) == len(_MIGRATIONS)
+    for argument in seen:
+        _assert_plain(argument)
     assert seen[0]["star_lists"] == _legacy_data_json()["star_lists"]
 
 
@@ -714,7 +745,9 @@ def test_upgrade_called_directly_passes_values_through_unconverted(mocker):
         dict
             ``data`` unchanged.
         """
-        seen.append(data)
+        # A shallow copy: the later 0.2 to 0.3 step replaces the star lists in
+        # the dict it is passed, and the values inside are what is checked.
+        seen.append(dict(data))
         return data
 
     legacy = _MIGRATIONS["legacy"]
@@ -737,12 +770,13 @@ def test_upgrade_called_directly_passes_values_through_unconverted(mocker):
 
 def test_file_from_before_absolute_focus_reads_it_as_none():
     # The 0.2.0 sample file predates absolute_focus (added in 0.2.1); it is
-    # read at the current version with absolute_focus None.
+    # upgraded to the current version with absolute_focus None.
     _, written_at_0_2_0 = _before_after_pair("legacy")
     assert written_at_0_2_0["schema_version"] == "0.2.0"
     assert "absolute_focus" not in written_at_0_2_0["star_lists"][0]
 
-    result = StarListSet.model_validate(written_at_0_2_0)
+    with pytest.warns(SchemaMigrationWarning):
+        result = StarListSet.model_validate(written_at_0_2_0)
 
     assert result.schema_version == SCHEMA_VERSION
     assert result.star_lists[0].absolute_focus is None
@@ -758,6 +792,86 @@ def test_legacy_file_is_upgraded_with_absolute_focus_none():
 
     assert result.schema_version == SCHEMA_VERSION
     assert result.star_lists[0].absolute_focus is None
+
+
+def _written_at_0_2(version):
+    """
+    Load the sample file written at a version of the 0.2 generation.
+
+    Parameters
+    ----------
+    version : {"0.2.0", "0.2.1"}
+        The version the file states.
+
+    Returns
+    -------
+    dict
+        For 0.2.0, ``after.json`` of the legacy migration, which predates
+        ``absolute_focus``; for 0.2.1, ``before.json`` of the 0.2 migration,
+        which sets ``absolute_focus`` on one star list and not the other.
+    """
+    before, after = _before_after_pair("legacy" if version == "0.2.0" else "0.2")
+    data = after if version == "0.2.0" else before
+    assert data["schema_version"] == version
+    return data
+
+
+@pytest.mark.parametrize("version", ["0.2.0", "0.2.1"])
+def test_0_2_file_is_validated_against_the_frozen_0_2_model(version):
+    # validate_as_written checks a file from either 0.2 version against the
+    # frozen 0.2 model, without upgrading it, so without a warning (pytest
+    # treats an unexpected SchemaMigrationWarning as an error).
+    result = validate_as_written(_written_at_0_2(version))
+
+    assert isinstance(result, _aavso_starlist_v0_2.StarListSet)
+    assert result.schema_version == version
+
+
+@pytest.mark.parametrize("version", ["0.2.0", "0.2.1"])
+def test_0_2_file_is_upgraded_with_photometry_software_unknown(version):
+    # A file from either 0.2 version is upgraded with one warning, naming the
+    # 0.2 migration but not the legacy one, and every star list gets
+    # photometry_software ["unknown"].
+    with pytest.warns(SchemaMigrationWarning) as record:
+        result = StarListSet.model_validate(_written_at_0_2(version))
+
+    assert len(record) == 1
+    message = str(record[0].message)
+    assert repr(version) in message
+    assert _MIGRATIONS["0.2"].summary in message
+    assert _MIGRATIONS["legacy"].summary not in message
+
+    assert result.schema_version == SCHEMA_VERSION
+    assert [star_list.photometry_software for star_list in result.star_lists] == [
+        ["unknown"]
+    ] * len(result.star_lists)
+
+
+def test_0_2_file_keeps_photometry_software_it_already_has():
+    # The frozen 0.2 models ignore keys they do not define, so a 0.2 file may
+    # already carry photometry_software; the migration keeps that value and
+    # fills in only the star lists without one.
+    data = copy.deepcopy(_written_at_0_2("0.2.1"))
+    data["star_lists"][0]["photometry_software"] = ["bandaid 1.2.3"]
+
+    with pytest.warns(SchemaMigrationWarning):
+        result = StarListSet.model_validate(data)
+
+    assert result.star_lists[0].photometry_software == ["bandaid 1.2.3"]
+    assert result.star_lists[1].photometry_software == ["unknown"]
+
+
+def test_legacy_file_is_upgraded_through_both_migrations():
+    # A legacy file is migrated to 0.2 and then to 0.3, and so gets
+    # photometry_software ["unknown"] too. (That the warning names both steps
+    # is checked by test_legacy_versions_are_upgraded_with_warning.)
+    before, _ = _before_after_pair("legacy")
+
+    with pytest.warns(SchemaMigrationWarning):
+        result = StarListSet.model_validate(before)
+
+    assert result.schema_version == SCHEMA_VERSION
+    assert result.star_lists[0].photometry_software == ["unknown"]
 
 
 def test_current_file_with_absolute_focus_round_trips():

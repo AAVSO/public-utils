@@ -22,6 +22,7 @@ from pydantic.alias_generators import to_snake
 from pydantic_core import PydanticSerializationError, to_jsonable_python
 
 import _aavso_starlist_legacy  # frozen models of the legacy generation
+import _aavso_starlist_v0_2  # frozen models of the 0.2 generation
 
 try:
     from _aavso_version import __version__  # top-level sibling, written by hatch-vcs
@@ -32,13 +33,13 @@ except ImportError:  # pragma: no cover - source tree without the generated file
 # deliberately independent of the package version above: bump it whenever the
 # generated schema under aavso_starlist_schema_data/ changes. The archive test
 # fails if the generated schema changes without bumping this constant.
-SCHEMA_VERSION = "0.2.1"
+SCHEMA_VERSION = "0.3.0"
 
 # Every released schema version from 0.2.0 on, oldest first; add each new
 # SCHEMA_VERSION here. Listed in the code, rather than read from the archive
 # folders, so the versions this reader accepts never depend on the filesystem.
 # The archive test fails if this differs from the archived versions.
-_RELEASED_VERSIONS = ("0.2.0", "0.2.1")
+_RELEASED_VERSIONS = ("0.2.0", "0.2.1", "0.3.0")
 
 __all__ = [
     "AAVSOFilters",
@@ -418,6 +419,20 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             examples=["ICRS"]
         )
     ]
+    photometry_software: Annotated[
+        list[Annotated[str, Field(min_length=1)]],
+        Field(
+            min_length=1,
+            title="Photometry Software",
+            description=(
+                "Software used to produce this photometry, one entry per "
+                "package, each written as `<name> <version>`. Files upgraded "
+                "from a schema version before 0.3.0 carry `[\"unknown\"]`."
+            ),
+            json_schema_extra=dict(unit="none"),
+            examples=[["bandaid 1.2.3", "browser-photometry 4.5.6"]]
+        )
+    ]
     absolute_focus: Annotated[
         float | None,
         Field(
@@ -691,8 +706,62 @@ def _migrate_legacy_to_0_2(data):
     return data
 
 
+def _with_photometry_software(star_list):
+    """
+    Give one star list from a 0.2 file the 0.3.0 ``photometry_software`` field.
+
+    Parameters
+    ----------
+    star_list : object
+        One entry of ``star_lists``. Reached through the model it is always a
+        dict of plain data (see `_Migration`); from `upgrade` called directly
+        it may also be another mapping or a model instance, which are
+        converted to a dict, or anything else.
+
+    Returns
+    -------
+    dict or object
+        A dict of the star list's fields with ``photometry_software`` set to
+        ``["unknown"]`` if it had no such key; an existing value is kept,
+        since the frozen 0.2 models ignore keys they do not define. Anything
+        that is neither a mapping nor a model is returned unchanged, for
+        validation to reject.
+    """
+    if isinstance(star_list, BaseModel):
+        star_list = star_list.model_dump()
+    if not isinstance(star_list, Mapping):
+        return star_list
+    return {"photometry_software": ["unknown"], **star_list}
+
+
+def _migrate_0_2_to_0_3(data):
+    """
+    Migrate a 0.2 starlist set to schema version 0.3.0.
+
+    Parameters
+    ----------
+    data : dict
+        Raw starlist-set data from a 0.2 file. `upgrade` passes a copy, so it
+        is modified in place.
+
+    Returns
+    -------
+    dict
+        ``data`` with ``photometry_software``, which became required in
+        0.3.0, set to ``["unknown"]`` on every star list that lacks it, and
+        ``star_lists`` a list. A tuple of star lists, which only `upgrade`
+        called directly can pass, is handled too.
+    """
+    star_lists = data.get("star_lists")
+    if isinstance(star_lists, (list, tuple)):
+        data["star_lists"] = [
+            _with_photometry_software(star_list) for star_list in star_lists
+        ]
+    return data
+
+
 # Keyed by the generation a file is in; the value takes it to the next generation.
-# The next breaking change adds an entry here, keyed by the generation being left,
+# Each breaking change adds an entry here, keyed by the generation being left,
 # with a frozen copy of that generation's models in its own _aavso_starlist_*.py.
 _MIGRATIONS = {
     "legacy": _Migration(
@@ -700,6 +769,12 @@ _MIGRATIONS = {
         "0.2.0",
         _migrate_legacy_to_0_2,
         "schema_version became required; no other field changed",
+    ),
+    "0.2": _Migration(
+        _aavso_starlist_v0_2.StarListSet,
+        "0.3.0",
+        _migrate_0_2_to_0_3,
+        'photometry_software became required; star lists without it get ["unknown"]',
     ),
 }
 
