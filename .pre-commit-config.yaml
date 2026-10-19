@@ -1,0 +1,17 @@
+# pre-commit reads its configuration only from the root of the git repository,
+# so this file lives here. Its only hook belongs to the starlist schema package
+# (schemas/starlist/) and runs only when that package's schema module or
+# reference files are committed. Install once per clone, from schemas/starlist:
+#   uv run pre-commit install
+repos:
+  - repo: local
+    hooks:
+      - id: starlist-schema-reference-files
+        name: Regenerate starlist reference schema files
+        # Runs `poe generate` inside schemas/starlist whenever the schema module or
+        # the generated files are part of the commit. If generation changes a file,
+        # pre-commit fails; `git add` the regenerated files and commit again.
+        entry: uv run --directory schemas/starlist --extra dev poe generate
+        language: system
+        files: ^schemas/starlist/(aavso_starlist_schema\.py|aavso_starlist_schema_data/schema_definition\.(json|md))$
+        pass_filenames: false

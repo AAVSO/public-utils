@@ -2,7 +2,7 @@
 
 | Title | JSON Field | Type | Unit | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
-| Starlist Schema Version | schema_version | str | none | An AAVSO-assigned string that identifies the schema version | 0.0.1 |
+| Starlist Schema Version | schema_version | str | none | The version of this schema that the file was written against, assigned by AAVSO | 0.2.0 |
 | Star List Set | star_lists | list | none | List of star lists | [] |
 
 

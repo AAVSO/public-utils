@@ -28,10 +28,13 @@ dependencies = [
 test = [
   "pytest",
   "pytest-astropy",
+  "pytest-mock",
 ]
 dev = [
   "aavso-starlist-schema[test]",
   "hatch-vcs",
+  "poethepoet",
+  "pre-commit",
   "ruff",
 ]
 
@@ -54,10 +57,34 @@ raw-options = { search_parent_directories = true, git_describe_command = [
 version-file = "_aavso_version.py"
 
 [tool.hatch.build.targets.wheel]
-include = ["aavso_starlist_schema.py", "_aavso_version.py", "data/**"]
+include = [
+  "aavso_starlist_schema.py",
+  "_aavso_starlist_*.py",
+  "_aavso_version.py",
+  "aavso_starlist_schema_data/**",
+]
+
+[tool.poe.tasks]
+gen-json.cmd = "aavso-starlist-schema aavso_starlist_schema_data/schema_definition"
+gen-json.help = "Regenerate the reference schema_definition.json"
+gen-markdown.cmd = "aavso-starlist-schema aavso_starlist_schema_data/schema_definition --markdown"
+gen-markdown.help = "Regenerate the reference schema_definition.md"
+generate.sequence = ["gen-json", "gen-markdown"]
+generate.help = "Regenerate both reference schema files under aavso_starlist_schema_data/"
+archive.shell = """
+version=$(python -c "from aavso_starlist_schema import SCHEMA_VERSION; print(SCHEMA_VERSION)")
+data=aavso_starlist_schema_data
+mkdir -p "$data/v$version"
+cp "$data/schema_definition.json" "$data/schema_definition.md" "$data/v$version/"
+echo "Archived schema $version under $data/v$version/"
+"""
+archive.help = "Copy the reference schema files to their v<SCHEMA_VERSION>/ archive (once per version bump)"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# A test that reads an older file must expect the migration warning with
+# pytest.warns; anywhere else it means the test read data it did not mean to.
+filterwarnings = ["error::aavso_starlist_schema.SchemaMigrationWarning"]
 
 [tool.coverage.run]
 source = ["aavso_starlist_schema"]

@@ -1,0 +1,38 @@
+{
+  "schema_version": "0.0.1.dev451+gde1568f",
+  "star_lists": [
+    {
+      "obs_time": "2021-06-15T03:45:00",
+      "site_lat": -41.56896,
+      "site_lon": -71.23841,
+      "site_elev": 211.0,
+      "observer": "MMU",
+      "filter": "TG",
+      "block_filter": "UV+IR",
+      "exposure": 30.0,
+      "tel_manufac": "Celestron",
+      "width": 2048,
+      "height": 1024,
+      "stack": 3,
+      "tel_model": "Origin 1",
+      "tel_firmware": "20240817.01",
+      "adc_depth": 14,
+      "largest_usable_adu_value": 41000,
+      "egain": 1.2,
+      "fwhm": 3.5,
+      "refframe": "ICRS",
+      "staritems": [
+        {
+          "x": 1206.78,
+          "y": 620.1,
+          "ra": 212.56789,
+          "dec": -12.12345,
+          "tot_count": 156700.4,
+          "count_err": 15300.1,
+          "bkgd_count": 1209.45,
+          "peak_count": 31454.963
+        }
+      ]
+    }
+  ]
+}

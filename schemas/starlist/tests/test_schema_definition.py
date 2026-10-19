@@ -1,14 +1,15 @@
 import json
+import re
 
 import pytest
 from astropy.table import Table
 
 from aavso_starlist_schema import (
     DATA_DIR,
+    SCHEMA_VERSION,
     StarItem,
     StarList,
     StarListSet,
-    __version__,
     _generate_markdown,
     cli,
     generate_star_list_set_schema,
@@ -19,6 +20,8 @@ from aavso_starlist_schema import (
 
 @pytest.mark.parametrize("klass", [StarItem, StarList, StarListSet])
 def test_schema_has_all_require_properties(klass):
+    # Every field of every model carries a title, description, examples and a unit
+    # (scale, for obs_time), so the generated schema and markdown are complete.
     required_fields = [
         "title",
         "description",
@@ -43,6 +46,7 @@ def test_example_values_are_valid(klass):
 
 
 def test_starlist_markdown_table():
+    # The committed markdown reference file is current with the models.
     mdown_file = DATA_DIR / "schema_definition.md"
     with open(mdown_file) as f:
         mdown_file_content = f.read()
@@ -51,19 +55,43 @@ def test_starlist_markdown_table():
 
 
 def test_starlist_json():
+    # The committed JSON reference file is current with the models.
+    # Compared as text, so key order and whitespace must match too.
     json_file = DATA_DIR / "schema_definition.json"
 
-    with open(json_file) as f:
-        expected_content = json.load(f)
+    assert generate_star_list_set_schema() == json_file.read_text()
 
-    current_schema = json.loads(generate_star_list_set_schema())
-    if "dev" in __version__:
-        # The schema contains the version number, which will be different
-        # in a source install.
-        # If we are in a source install, we want to ignore the version number.
-        current_schema["properties"]["schema_version"]["default"] = expected_content["properties"]["schema_version"]["default"]
 
-    assert current_schema == expected_content
+def test_schema_version_is_embedded():
+    # The schema version is a hand-maintained constant, independent of the
+    # package version, so generation is deterministic.
+    schema = json.loads(generate_star_list_set_schema())
+    assert schema["version"] == SCHEMA_VERSION
+    assert "schema_version" in schema["required"]
+    assert "default" not in schema["properties"]["schema_version"]
+
+
+def test_schema_pattern_admits_only_released_versions_of_current_generation(
+    next_generation_version,
+):
+    # The schema_version pattern in the generated schema admits only released
+    # versions of the current generation, up to the current version, so other
+    # tools validating a file against the schema reject what the model rejects.
+    # (The model itself upgrades or raises a SchemaVersionError before the
+    # pattern is reached; see test_migration.py.)
+    schema = json.loads(generate_star_list_set_schema())
+    pattern = schema["properties"]["schema_version"]["pattern"]
+    major, minor, patch = SCHEMA_VERSION.split(".")
+
+    assert re.search(pattern, SCHEMA_VERSION)
+    for bad_version in [
+        "banana",
+        "0.0.1.dev451+gde1568f",  # legacy dev string
+        "0.1.0",  # before versioning began
+        f"{major}.{minor}.{int(patch) + 1}",  # newer, same generation
+        next_generation_version,
+    ]:
+        assert not re.search(pattern, bad_version)
 
 
 def test_make_star_list_from_table_of_items():
@@ -198,12 +226,12 @@ def test_main_writes_markdown(tmp_path):
 
 
 @pytest.mark.parametrize("markdown_flag, suffix", [([], ".json"), (["--markdown"], ".md")])
-def test_cli_writes_file(tmp_path, monkeypatch, markdown_flag, suffix):
+def test_cli_writes_file(tmp_path, mocker, markdown_flag, suffix):
     # The console-script entry point parses argv and writes the requested format.
     # Fire binds a value following a bool flag to that flag, so the positional
     # filename comes first and --markdown is a trailing standalone flag.
     out = tmp_path / "from_cli"
-    monkeypatch.setattr("sys.argv", ["aavso-starlist-schema", str(out), *markdown_flag])
+    mocker.patch("sys.argv", ["aavso-starlist-schema", str(out), *markdown_flag])
 
     cli()
 

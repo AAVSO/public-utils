@@ -40,3 +40,28 @@ jobs:
 
       - name: Run tests
         run: uv run pytest
+
+  schema-files:
+    # Guard the archived schema versions. Only meaningful for PRs, where there
+    # is a base ref. Stale generated files are caught by pytest in the test job.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: schemas/starlist
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check archived schema files are unchanged
+        # aavso_starlist_schema_data/v<version>/ is the permanent record of each
+        # schema version, and aavso_starlist_schema_data/legacy/ of the schema
+        # before versioning began. A PR
+        # may add an archive but never modify, delete or rename one
+        # (--diff-filter=a is every kind of change except an addition).
+        run: |
+          git fetch origin ${{ github.base_ref }}
+          git diff --exit-code --name-only --diff-filter=a \
+            origin/${{ github.base_ref }}... -- \
+            'aavso_starlist_schema_data/v*' aavso_starlist_schema_data/legacy
