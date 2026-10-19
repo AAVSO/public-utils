@@ -428,7 +428,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
                 "images from the same telescope model. None if not available."
             ),
             json_schema_extra=dict(unit="none"),
-            examples=[1823]
+            examples=[1823.0]
         )
     ] = None
     staritems: Annotated[

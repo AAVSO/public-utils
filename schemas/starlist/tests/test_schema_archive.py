@@ -12,7 +12,6 @@ frozen model cannot change either.
 import importlib
 import json
 import re
-import warnings
 from pathlib import Path
 
 import pytest
@@ -207,13 +206,12 @@ def test_released_versions_match_the_archives():
 )
 def test_archived_version_of_current_generation_is_read_as_current(directory):
     # Every released version of the current generation is read without
-    # migration, so without a warning, and the object states the current
+    # migration, so without a warning (pytest treats an unexpected
+    # SchemaMigrationWarning as an error), and the object states the current
     # version, so a file written from it is labelled with the schema it
     # conforms to.
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        star_list_set = StarListSet.model_validate(
-            {"schema_version": directory.name[1:], "star_lists": []}
-        )
+    star_list_set = StarListSet.model_validate(
+        {"schema_version": directory.name[1:], "star_lists": []}
+    )
 
     assert star_list_set.schema_version == SCHEMA_VERSION

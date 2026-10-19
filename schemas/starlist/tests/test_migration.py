@@ -762,13 +762,12 @@ def test_legacy_file_is_upgraded_with_absolute_focus_none():
 
 def test_current_file_with_absolute_focus_round_trips():
     # A file at the current version that sets absolute_focus is read without
-    # a warning, keeps the value, and is written back unchanged.
+    # a warning (pytest treats an unexpected SchemaMigrationWarning as an
+    # error), keeps the value, and is written back unchanged.
     data = _example_data(star_lists=[StarList.from_examples().model_dump(mode="json")])
-    assert data["star_lists"][0]["absolute_focus"] == 1823
+    assert data["star_lists"][0]["absolute_focus"] == 1823.0
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        result = StarListSet.model_validate_json(json.dumps(data))
+    result = StarListSet.model_validate_json(json.dumps(data))
 
-    assert result.star_lists[0].absolute_focus == 1823
+    assert result.star_lists[0].absolute_focus == 1823.0
     assert result.model_dump(mode="json") == data

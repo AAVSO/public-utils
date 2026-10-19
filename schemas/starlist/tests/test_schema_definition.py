@@ -68,8 +68,8 @@ def test_absolute_focus_is_kept_when_present():
     # A value given for absolute_focus survives a JSON round trip.
     star_list = StarList.from_examples()
 
-    assert star_list.absolute_focus == 1823
-    assert StarList.model_validate_json(star_list.model_dump_json()).absolute_focus == 1823
+    assert star_list.absolute_focus == 1823.0
+    assert StarList.model_validate_json(star_list.model_dump_json()).absolute_focus == 1823.0
 
 
 def _count_cells(row):

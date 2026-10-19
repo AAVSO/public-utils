@@ -326,7 +326,7 @@
           "default": null,
           "description": "Absolute focus position of the telescope, in the focuser's native units (typically motor steps), comparable only between images from the same telescope model. None if not available.",
           "examples": [
-            1823
+            1823.0
           ],
           "title": "Absolute Focus Position",
           "unit": "none"

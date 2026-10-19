@@ -32,7 +32,7 @@
 | System gain | egain | float | e-/adu | Gain of the camera in e-/adu | 1.2 |
 | FWHM | fwhm | float | pixel | Typical full width at half maximum of the star image | 3.5 |
 | Coordinate Reference Frame | refframe | str | none | Reference frame of the observation | ICRS |
-| Absolute Focus Position | absolute_focus | float \| None | none | Absolute focus position of the telescope, in the focuser's native units (typically motor steps), comparable only between images from the same telescope model. None if not available. | 1823 |
+| Absolute Focus Position | absolute_focus | float \| None | none | Absolute focus position of the telescope, in the focuser's native units (typically motor steps), comparable only between images from the same telescope model. None if not available. | 1823.0 |
 | Star Items | staritems | list | none | List of stars detected in the image | [] |
 
 
