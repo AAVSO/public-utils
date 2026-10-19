@@ -2,7 +2,7 @@
 
 | Title | JSON Field | Type | Unit | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
-| Starlist Schema Version | schema_version | str | none | The version of this schema that the file was written against, assigned by AAVSO | 0.2.0 |
+| Starlist Schema Version | schema_version | str | none | The version of this schema that the file was written against, assigned by AAVSO | 0.2.1 |
 | Star List Set | star_lists | list | none | List of star lists | [] |
 
 
@@ -24,7 +24,7 @@
 | Telescope Manufacturer | tel_manufac | str | none | Name of the telescope manufacturer | Celestron |
 | Image Width | width | int | pixel | Width of the image in pixels | 2048 |
 | Image Height | height | int | pixel | Height of the image in pixels | 1024 |
-| Number of images | stack | int | None | none | Number of images stacked to create this image. If not applicable, set to None. | 3 |
+| Number of images | stack | int \| None | none | Number of images stacked to create this image. If not applicable, set to None. | 3 |
 | Telescope Model | tel_model | str | none | Model of the telescope | Origin 1 |
 | Telescope Firmware | tel_firmware | str | none | Firmware version of the telescope | 20240817.01 |
 | A/D Converter Bit Depth | adc_depth | int | bit | Bit depth of the analog-to-digital converter | 14 |
@@ -32,6 +32,7 @@
 | System gain | egain | float | e-/adu | Gain of the camera in e-/adu | 1.2 |
 | FWHM | fwhm | float | pixel | Typical full width at half maximum of the star image | 3.5 |
 | Coordinate Reference Frame | refframe | str | none | Reference frame of the observation | ICRS |
+| Absolute Focus Position | absolute_focus | float \| None | none | Absolute focus position of the telescope, in the focuser's native units (typically motor steps), comparable only between images from the same telescope model. None if not available. | 1823.0 |
 | Star Items | staritems | list | none | List of stars detected in the image | [] |
 
 

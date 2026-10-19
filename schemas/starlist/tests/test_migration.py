@@ -16,6 +16,7 @@ from aavso_starlist_schema import (
     MigrationResultError,
     NewerSchemaVersionError,
     SchemaMigrationWarning,
+    StarList,
     StarListSet,
     UnsupportedSchemaVersionError,
     _generation,
@@ -732,3 +733,41 @@ def test_upgrade_called_directly_passes_values_through_unconverted(mocker):
     assert type(received["star_lists"][0]) is _aavso_starlist_legacy.StarList
     assert type(received["star_lists"][1]) is _Mapping
     assert type(received["filter"]) is _aavso_starlist_legacy.AAVSOFilters
+
+
+def test_file_from_before_absolute_focus_reads_it_as_none():
+    # The 0.2.0 sample file predates absolute_focus (added in 0.2.1); it is
+    # read at the current version with absolute_focus None.
+    _, written_at_0_2_0 = _before_after_pair("legacy")
+    assert written_at_0_2_0["schema_version"] == "0.2.0"
+    assert "absolute_focus" not in written_at_0_2_0["star_lists"][0]
+
+    result = StarListSet.model_validate(written_at_0_2_0)
+
+    assert result.schema_version == SCHEMA_VERSION
+    assert result.star_lists[0].absolute_focus is None
+
+
+def test_legacy_file_is_upgraded_with_absolute_focus_none():
+    # A legacy file is migrated and restamped at the current version, and
+    # reads the field added since as None.
+    before, _ = _before_after_pair("legacy")
+
+    with pytest.warns(SchemaMigrationWarning):
+        result = StarListSet.model_validate(before)
+
+    assert result.schema_version == SCHEMA_VERSION
+    assert result.star_lists[0].absolute_focus is None
+
+
+def test_current_file_with_absolute_focus_round_trips():
+    # A file at the current version that sets absolute_focus is read without
+    # a warning (pytest treats an unexpected SchemaMigrationWarning as an
+    # error), keeps the value, and is written back unchanged.
+    data = _example_data(star_lists=[StarList.from_examples().model_dump(mode="json")])
+    assert data["star_lists"][0]["absolute_focus"] == 1823.0
+
+    result = StarListSet.model_validate_json(json.dumps(data))
+
+    assert result.star_lists[0].absolute_focus == 1823.0
+    assert result.model_dump(mode="json") == data

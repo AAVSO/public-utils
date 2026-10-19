@@ -32,13 +32,13 @@ except ImportError:  # pragma: no cover - source tree without the generated file
 # deliberately independent of the package version above: bump it whenever the
 # generated schema under aavso_starlist_schema_data/ changes. The archive test
 # fails if the generated schema changes without bumping this constant.
-SCHEMA_VERSION = "0.2.0"
+SCHEMA_VERSION = "0.2.1"
 
 # Every released schema version from 0.2.0 on, oldest first; add each new
 # SCHEMA_VERSION here. Listed in the code, rather than read from the archive
 # folders, so the versions this reader accepts never depend on the filesystem.
 # The archive test fails if this differs from the archived versions.
-_RELEASED_VERSIONS = ("0.2.0",)
+_RELEASED_VERSIONS = ("0.2.0", "0.2.1")
 
 __all__ = [
     "AAVSOFilters",
@@ -106,6 +106,9 @@ class PrettyPrintMixin:
         rows.append("| --- | --- | --- | --- | --- | --- |")
         for name, field_info in cls.model_fields.items():
             type_name = getattr(field_info.annotation, "__name__", field_info.annotation)
+            # Escape the pipe in a union such as ``int | None`` so it does not
+            # split the cell.
+            type_name = str(type_name).replace("|", r"\|")
             row = (
                 f"| {field_info.title} | {name} | {type_name} "
                 f"| {field_info.json_schema_extra['unit']} "
@@ -415,6 +418,19 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             examples=["ICRS"]
         )
     ]
+    absolute_focus: Annotated[
+        float | None,
+        Field(
+            title="Absolute Focus Position",
+            description=(
+                "Absolute focus position of the telescope, in the focuser's "
+                "native units (typically motor steps), comparable only between "
+                "images from the same telescope model. None if not available."
+            ),
+            json_schema_extra=dict(unit="none"),
+            examples=[1823.0]
+        )
+    ] = None
     staritems: Annotated[
         list[StarItem],
         Field(
@@ -439,7 +455,14 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             Additional metadata to ustoin the StarList object.
             If not provided, the metadata from the table will be used.
             If both are provided, the metadata from this argument will
-            take precedence.
+            take precedence. Optional fields may be omitted and take their
+            default.
+
+        Raises
+        ------
+        ValueError
+            If the table lacks a star item column, or the metadata lacks a
+            required field.
 
         Returns
         -------
@@ -464,7 +487,10 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
 
         final_meta["staritems"] = star_items
 
-        if missing_keys := set(cls.model_fields.keys()) - set(final_meta.keys()):
+        # Only required fields must be present; a field with a default, such
+        # as ``stack``, takes its default when it is missing.
+        required = {name for name, field in cls.model_fields.items() if field.is_required()}
+        if missing_keys := required - set(final_meta.keys()):
             raise ValueError(f"Missing keys in metadata: {', '.join(missing_keys)}")
 
         # Create the StarList object

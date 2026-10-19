@@ -314,6 +314,23 @@
           "type": "string",
           "unit": "none"
         },
+        "absolute_focus": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Absolute focus position of the telescope, in the focuser's native units (typically motor steps), comparable only between images from the same telescope model. None if not available.",
+          "examples": [
+            1823.0
+          ],
+          "title": "Absolute Focus Position",
+          "unit": "none"
+        },
         "staritems": {
           "description": "List of stars detected in the image",
           "examples": [
@@ -357,9 +374,9 @@
     "schema_version": {
       "description": "The version of this schema that the file was written against, assigned by AAVSO",
       "examples": [
-        "0.2.0"
+        "0.2.1"
       ],
-      "pattern": "^(0\\.2\\.0)$",
+      "pattern": "^(0\\.2\\.0|0\\.2\\.1)$",
       "title": "Starlist Schema Version",
       "type": "string",
       "unit": "none"
@@ -383,5 +400,5 @@
   ],
   "title": "StarListSet",
   "type": "object",
-  "version": "0.2.0"
+  "version": "0.2.1"
 }
