@@ -2,7 +2,7 @@
 
 | Title | JSON Field | Type | Unit | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
-| Starlist Schema Version | schema_version | str | none | The version of this schema that the file was written against, assigned by AAVSO | "0.3.0" |
+| Starlist Schema Version | schema_version | str | none | The version of this schema that the file was written against, assigned by AAVSO | "0.3.1" |
 | Star List Set | star_lists | list[StarList] | none | List of star lists | [] |
 
 
@@ -30,7 +30,7 @@
 | A/D Converter Bit Depth | adc_depth | int | bit | Bit depth of the analog-to-digital converter | 14 |
 | Largest Usable ADU Value | largest_usable_adu_value | int | adu | Largest usable analog-to-digital unit value | 41000 |
 | System gain | egain | float | e-/adu | Gain of the camera in e-/adu | 1.2 |
-| FWHM | fwhm | float | pixel | Typical full width at half maximum of the star image | 3.5 |
+| Typical FWHM | fwhm | float | pixel | Typical full width at half maximum of the stars in this image; each star item may carry its own `fwhm` | 3.5 |
 | Coordinate Reference Frame | refframe | str | none | Reference frame of the observation | "ICRS" |
 | Photometry Software | photometry_software | list[str] | none | Software used to produce this photometry, one entry per package, each written as `<name> <version>`. Files upgraded from a schema version before 0.3.0 carry `["unknown"]`. | ["bandaid 1.2.3", "browser-photometry 4.5.6"] |
 | Absolute Focus Position | absolute_focus | float \| None | none | Absolute focus position of the telescope, in the focuser's native units (typically motor steps), comparable only between images from the same telescope model. None if not available. | 1823.0 |
@@ -52,3 +52,4 @@
 | Count Error | count_err | float | adu | Error in the total integrated counts of the star | 15300.1 |
 | Background counts | bkgd_count | float | adu / pixel | Background count level in the vicinity of the star | 1209.45 |
 | Peak Counts | peak_count | float | adu | Peak counts of the star | 31454.963 |
+| Star FWHM | fwhm | float \| None | pixel | Full width at half maximum of this star's image, as opposed to the typical value for the whole image in the star list's `fwhm`. None if not available. | 3.4 |

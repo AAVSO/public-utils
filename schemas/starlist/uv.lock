@@ -8,6 +8,7 @@ source = { editable = "." }
 dependencies = [
     { name = "astropy" },
     { name = "fire" },
+    { name = "numpy" },
     { name = "pydantic" },
 ]
 
@@ -32,6 +33,7 @@ requires-dist = [
     { name = "astropy" },
     { name = "fire" },
     { name = "hatch-vcs", marker = "extra == 'dev'" },
+    { name = "numpy" },
     { name = "poethepoet", marker = "extra == 'dev'" },
     { name = "pre-commit", marker = "extra == 'dev'" },
     { name = "pydantic", specifier = ">=2" },

@@ -2,8 +2,9 @@ import json
 import re
 from typing import Annotated, Optional
 
+import numpy as np
 import pytest
-from astropy.table import Table
+from astropy.table import MaskedColumn, Table
 from pydantic import ValidationError
 
 from aavso_starlist_schema import (
@@ -14,6 +15,7 @@ from aavso_starlist_schema import (
     StarList,
     StarListSet,
     _generate_markdown,
+    _is_missing,
     _type_name,
     cli,
     generate_star_list_set_schema,
@@ -74,6 +76,46 @@ def test_absolute_focus_is_kept_when_present():
 
     assert star_list.absolute_focus == 1823.0
     assert StarList.model_validate_json(star_list.model_dump_json()).absolute_focus == 1823.0
+
+
+def test_star_item_fwhm_is_optional():
+    # A star item's fwhm may be left out, which then reads it as None; it is
+    # not merely nullable but also absent from "required".
+    data = StarItem.from_examples().model_dump()
+    del data["fwhm"]
+
+    assert StarItem.model_validate(data).fwhm is None
+    assert "fwhm" not in StarItem.model_json_schema()["required"]
+
+
+def test_star_item_fwhm_is_kept_when_present():
+    # A value given for a star item's fwhm survives a JSON round trip.
+    star_item = StarItem.from_examples()
+
+    assert star_item.fwhm == 3.4
+    assert StarItem.model_validate_json(star_item.model_dump_json()).fwhm == 3.4
+
+
+@pytest.mark.parametrize("value", [0, -1.5])
+def test_star_item_fwhm_must_be_positive(value):
+    # A width of zero or less is not a width; both are rejected.
+    data = StarItem.from_examples().model_dump()
+    data["fwhm"] = value
+
+    with pytest.raises(ValidationError, match="greater than 0"):
+        StarItem.model_validate(data)
+
+
+@pytest.mark.parametrize("value", [float("inf"), float("nan")])
+def test_star_item_fwhm_rejects_infinity_and_nan(value):
+    # JSON has no infinity or NaN, so pydantic would write either as null,
+    # which is a valid fwhm meaning "not available"; the value would be lost
+    # with no error. Both are rejected instead.
+    data = StarItem.from_examples().model_dump()
+    data["fwhm"] = value
+
+    with pytest.raises(ValidationError, match="finite number|greater than 0"):
+        StarItem.model_validate(data)
 
 
 def test_photometry_software_is_required_in_a_current_file():
@@ -384,6 +426,128 @@ def test_from_table_keeps_optional_metadata_that_is_present(field_name):
     star_list = StarList.from_table(table)
 
     assert getattr(star_list, field_name) == StarList.model_fields[field_name].examples[0]
+
+
+def _optional_star_item_columns():
+    """
+    Name the optional fields of `StarItem`.
+
+    Returns
+    -------
+    list of str
+        The fields of `StarItem` that are not required; ``fwhm`` at present.
+    """
+    return [name for name, field in StarItem.model_fields.items() if not field.is_required()]
+
+
+@pytest.mark.parametrize("column", _optional_star_item_columns())
+def test_from_table_allows_missing_optional_star_item_column(column):
+    # A table without the column of an optional star item field is accepted,
+    # and every star item reads that field as its default.
+    table = _single_star_table()
+    del table[column]
+
+    star_list = StarList.from_table(table)
+
+    assert len(star_list.staritems) == 1
+    assert getattr(star_list.staritems[0], column) == StarItem.model_fields[column].default
+
+
+@pytest.mark.parametrize("column", _optional_star_item_columns())
+def test_from_table_keeps_optional_star_item_column_that_is_present(column):
+    # The column of an optional star item field, when given, is read, not
+    # replaced by its default.
+    table = _single_star_table()
+
+    star_list = StarList.from_table(table)
+
+    assert getattr(star_list.staritems[0], column) == StarItem.model_fields[column].examples[0]
+
+
+@pytest.mark.parametrize("missing", ["masked", "nan"])
+def test_from_table_reads_missing_optional_star_item_value_as_none(missing):
+    # A masked entry, or a NaN, in an optional column is the table's way of
+    # saying there is no value; it reads as None rather than failing
+    # validation (fwhm must be greater than zero, which NaN is not).
+    table = _single_star_table()
+    if missing == "masked":
+        table["fwhm"] = MaskedColumn([3.4], mask=[True])
+    else:
+        table["fwhm"] = [np.nan]
+
+    star_list = StarList.from_table(table)
+
+    assert star_list.staritems[0].fwhm is None
+
+
+def test_from_table_still_requires_the_required_star_item_columns():
+    # Making optional columns optional did not loosen the required ones: a
+    # table without required star item columns is rejected, naming them in
+    # a fixed (sorted) order.
+    table = _single_star_table()
+    del table["peak_count"]
+    del table["dec"]
+
+    with pytest.raises(ValueError, match="Missing columns in table: dec, peak_count$"):
+        StarList.from_table(table)
+
+
+def test_is_missing_treats_a_string_as_a_value():
+    # A string cannot be NaN; it is a value, not a gap, so a future optional
+    # string column would not have its entries turned into None.
+    assert not _is_missing("3.4")
+    assert _is_missing(np.nan)
+    assert _is_missing(np.ma.masked)
+
+
+def test_to_table_masks_none_in_an_optional_star_item_column():
+    # None in an optional star item field becomes a masked entry of a float
+    # column, so that from_table reads it back as None; the values that are
+    # present are kept.
+    star_list = StarList.from_examples()
+    with_fwhm = StarItem.from_examples()
+    without_fwhm = StarItem.from_examples()
+    without_fwhm.fwhm = None
+    star_list.staritems = [with_fwhm, without_fwhm, with_fwhm]
+
+    table = star_list.to_table()
+
+    assert isinstance(table["fwhm"], MaskedColumn)
+    assert table["fwhm"].dtype.kind == "f"
+    assert list(table["fwhm"].mask) == [False, True, False]
+    assert table["fwhm"][0] == 3.4
+    assert not isinstance(table["x"], MaskedColumn)
+
+    round_tripped = StarList.from_table(table)
+
+    assert [star.fwhm for star in round_tripped.staritems] == [3.4, None, 3.4]
+    assert round_tripped == star_list
+
+
+def test_empty_star_list_round_trips_through_a_table():
+    # A star list with no star items gives a table with every star item
+    # column present but empty, which from_table accepts and reads back as a
+    # star list with no star items.
+    star_list = StarList.from_examples()
+    star_list.staritems = []
+
+    table = star_list.to_table()
+
+    assert table.colnames == list(StarItem.model_fields)
+    assert len(table) == 0
+    assert StarList.from_table(table) == star_list
+
+
+def test_to_table_keeps_optional_star_item_column_plain_when_no_none():
+    # When every star item has a value for an optional field, its column is an
+    # ordinary one, as before the field became optional.
+    star_list = StarList.from_examples()
+    star_list.staritems = [StarItem.from_examples(), StarItem.from_examples()]
+
+    table = star_list.to_table()
+
+    assert not isinstance(table["fwhm"], MaskedColumn)
+    assert list(table["fwhm"]) == [3.4, 3.4]
 
 
 def test_make_table_from_starlist():

@@ -21,6 +21,7 @@ classifiers = [
 dependencies = [
   "astropy",
   "fire",
+  "numpy",
   "pydantic>=2",
 ]
 

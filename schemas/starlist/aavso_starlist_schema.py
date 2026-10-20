@@ -10,14 +10,14 @@ import copy
 import json
 import re
 import warnings
-from collections import defaultdict
 from collections.abc import Callable, Mapping
 from enum import StrEnum
 from pathlib import Path
 from types import UnionType
 from typing import Annotated, NamedTuple, Union, get_args, get_origin
 
-from astropy.table import Table
+import numpy as np
+from astropy.table import MaskedColumn, Table
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from pydantic.alias_generators import to_snake
 from pydantic_core import PydanticSerializationError, to_jsonable_python
@@ -34,13 +34,13 @@ except ImportError:  # pragma: no cover - source tree without the generated file
 # deliberately independent of the package version above: bump it whenever the
 # generated schema under aavso_starlist_schema_data/ changes. The archive test
 # fails if the generated schema changes without bumping this constant.
-SCHEMA_VERSION = "0.3.0"
+SCHEMA_VERSION = "0.3.1"
 
 # Every released schema version from 0.2.0 on, oldest first; add each new
 # SCHEMA_VERSION here. Listed in the code, rather than read from the archive
 # folders, so the versions this reader accepts never depend on the filesystem.
 # The archive test fails if this differs from the archived versions.
-_RELEASED_VERSIONS = ("0.2.0", "0.2.1", "0.3.0")
+_RELEASED_VERSIONS = ("0.2.0", "0.2.1", "0.3.0", "0.3.1")
 
 __all__ = [
     "AAVSOFilters",
@@ -168,6 +168,31 @@ class GenerateInstanceFromExamplesMixin:
         return cls(**example_data)
 
 
+def _is_missing(value):
+    """
+    Tell whether a table entry means "no value".
+
+    Parameters
+    ----------
+    value : object
+        One entry of an `astropy.table.Table` column, as indexing a row gives it.
+
+    Returns
+    -------
+    bool
+        True if ``value`` is masked or a NaN, the two ways a table marks a
+        missing number; False for anything else, including a string.
+    """
+    if value is np.ma.masked:
+        return True
+    try:
+        return bool(np.isnan(value))
+    except (TypeError, ValueError):
+        # Not a number (a string, say), or an array cell with no single truth
+        # value: either way it is a value, not a gap.
+        return False
+
+
 class StarItem(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     """
     Definition of individual entries in an AAVSO star list.
@@ -259,6 +284,21 @@ class StarItem(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             examples=[31454.963]
         )
     ]
+    fwhm: Annotated[
+        float | None,
+        Field(
+            gt=0,
+            allow_inf_nan=False,
+            title="Star FWHM",
+            description=(
+                "Full width at half maximum of this star's image, as opposed "
+                "to the typical value for the whole image in the star list's "
+                "`fwhm`. None if not available."
+            ),
+            json_schema_extra=dict(unit="pixel"),
+            examples=[3.4]
+        )
+    ] = None
 
 
 class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
@@ -439,8 +479,11 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
         float,
         Field(
             gt=0,
-            title="FWHM",
-            description="Typical full width at half maximum of the star image",
+            title="Typical FWHM",
+            description=(
+                "Typical full width at half maximum of the stars in this "
+                "image; each star item may carry its own `fwhm`"
+            ),
             json_schema_extra=dict(unit="pixel"),
             examples=[3.5]
         )
@@ -499,10 +542,12 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
         Parameters
         ----------
         table : `astropy.table.Table`
-            The input table containing one row per star item.
+            The input table containing one row per star item. Columns of
+            optional `StarItem` fields, such as ``fwhm``, may be omitted; a
+            masked or NaN entry in one reads as None.
 
         metadata : dict, optional
-            Additional metadata to ustoin the StarList object.
+            Additional metadata to use in the StarList object.
             If not provided, the metadata from the table will be used.
             If both are provided, the metadata from this argument will
             take precedence. Optional fields may be omitted and take their
@@ -511,23 +556,34 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
         Raises
         ------
         ValueError
-            If the table lacks a star item column, or the metadata lacks a
-            required field.
+            If the table lacks a required star item column, or the metadata
+            lacks a required field.
 
         Returns
         -------
         StarList
             An instance of the StarList class.
         """
-        # First create the star items from the table rows.
+        # First create the star items from the table rows. Only the required
+        # star item fields must be columns; an optional one, such as the
+        # per-star fwhm, is read when its column is present and a masked or
+        # NaN entry in it (the table's ways of saying "no value") reads as
+        # None, which is the only "no value" JSON can carry.
+        required_columns = {
+            name for name, field in StarItem.model_fields.items() if field.is_required()
+        }
+        if missing_columns := required_columns - set(table.colnames):
+            raise ValueError(f"Missing columns in table: {', '.join(sorted(missing_columns))}")
+        columns = [name for name in StarItem.model_fields if name in table.colnames]
         star_items = []
-        missing_keys = set(StarItem.model_fields.keys()) - set(table.colnames)
-        if missing_keys:
-            raise ValueError(f"Missing columns in table: {', '.join(missing_keys)}")
         for row in table:
-            star_items.append(
-                StarItem(**{key: row[key] for key in StarItem.model_fields.keys()})
-            )
+            values = {}
+            for key in columns:
+                value = row[key]
+                if key not in required_columns and _is_missing(value):
+                    value = None
+                values[key] = value
+            star_items.append(StarItem(**values))
 
         # Construct metadata, with any passed in to the metadata argument
         # taking precedence over metadata in the table.
@@ -541,7 +597,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
         # as ``stack``, takes its default when it is missing.
         required = {name for name, field in cls.model_fields.items() if field.is_required()}
         if missing_keys := required - set(final_meta.keys()):
-            raise ValueError(f"Missing keys in metadata: {', '.join(missing_keys)}")
+            raise ValueError(f"Missing keys in metadata: {', '.join(sorted(missing_keys))}")
 
         # Create the StarList object
         return cls.model_validate(final_meta)
@@ -554,16 +610,31 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
         -------
 
         `astropy.table.Table`
-            A table in which the columns are the  individual star items
-            properties, with one star item per row. The remaining information
-            from the starlist is stored in the table metata.
+            A table with one column per `StarItem` field, including the
+            optional ones, and one star item per row; with no star items the
+            columns are empty. The column of an optional field in which any
+            star item has None is a float `astropy.table.MaskedColumn`, masked
+            where the value is None, so that `from_table` reads it back as
+            None. The remaining information from the starlist is stored in
+            the table metadata.
 
         """
-        table_columns = self.staritems[0].model_fields
-        table_dict = defaultdict(list)
+        table_dict = {col: [] for col in StarItem.model_fields}
         for star in self.staritems:
-            for col in table_columns:
+            for col in table_dict:
                 table_dict[col].append(getattr(star, col))
+
+        # An optional column with a None in it becomes a masked column, masked
+        # where the value is None, so that from_table reads the None back. The
+        # fill value assumes optional star item fields are numbers, as fwhm is.
+        for col, values in table_dict.items():
+            if not StarItem.model_fields[col].is_required() and any(
+                value is None for value in values
+            ):
+                table_dict[col] = MaskedColumn(
+                    [0.0 if value is None else value for value in values],
+                    mask=[value is None for value in values],
+                )
 
         table_meta = self.model_dump()
         table_meta.pop("staritems")
