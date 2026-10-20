@@ -722,16 +722,16 @@ def _with_photometry_software(star_list):
     -------
     dict or object
         A dict of the star list's fields with ``photometry_software`` set to
-        ``["unknown"]`` if it had no such key; an existing value is kept,
-        since the frozen 0.2 models ignore keys they do not define. Anything
-        that is neither a mapping nor a model is returned unchanged, for
-        validation to reject.
+        ``["unknown"]``. The 0.2 schema does not define the key, so a value
+        already there was never validated and is replaced: a file valid for
+        0.2 is then always valid after migration. Anything that is neither a
+        mapping nor a model is returned unchanged, for validation to reject.
     """
     if isinstance(star_list, BaseModel):
         star_list = star_list.model_dump()
     if not isinstance(star_list, Mapping):
         return star_list
-    return {"photometry_software": ["unknown"], **star_list}
+    return {**star_list, "photometry_software": ["unknown"]}
 
 
 def _migrate_0_2_to_0_3(data):
@@ -748,8 +748,8 @@ def _migrate_0_2_to_0_3(data):
     -------
     dict
         ``data`` with ``photometry_software``, which became required in
-        0.3.0, set to ``["unknown"]`` on every star list that lacks it, and
-        ``star_lists`` a list. A tuple of star lists, which only `upgrade`
+        0.3.0, set to ``["unknown"]`` on every star list, and ``star_lists``
+        a list. A tuple of star lists, which only `upgrade`
         called directly can pass, is handled too.
     """
     star_lists = data.get("star_lists")
@@ -774,7 +774,7 @@ _MIGRATIONS = {
         _aavso_starlist_v0_2.StarListSet,
         "0.3.0",
         _migrate_0_2_to_0_3,
-        'photometry_software became required; star lists without it get ["unknown"]',
+        'photometry_software became required; every star list gets ["unknown"]',
     ),
 }
 

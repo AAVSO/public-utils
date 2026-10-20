@@ -847,18 +847,23 @@ def test_0_2_file_is_upgraded_with_photometry_software_unknown(version):
     ] * len(result.star_lists)
 
 
-def test_0_2_file_keeps_photometry_software_it_already_has():
+@pytest.mark.parametrize("value", [["bandaid 1.2.3"], [], "bandaid 1.2.3", None])
+def test_0_2_file_with_photometry_software_already_gets_unknown(value):
     # The frozen 0.2 models ignore keys they do not define, so a 0.2 file may
-    # already carry photometry_software; the migration keeps that value and
-    # fills in only the star lists without one.
+    # carry a photometry_software key, valid for 0.3 or not. The 0.2 schema
+    # never validated it, so the migration replaces it with ["unknown"] like
+    # any other 0.2 star list, and a file valid for 0.2 is always valid after
+    # migration.
     data = copy.deepcopy(_written_at_0_2("0.2.1"))
-    data["star_lists"][0]["photometry_software"] = ["bandaid 1.2.3"]
+    data["star_lists"][0]["photometry_software"] = value
 
     with pytest.warns(SchemaMigrationWarning):
         result = StarListSet.model_validate(data)
 
-    assert result.star_lists[0].photometry_software == ["bandaid 1.2.3"]
-    assert result.star_lists[1].photometry_software == ["unknown"]
+    assert [star_list.photometry_software for star_list in result.star_lists] == [
+        ["unknown"],
+        ["unknown"],
+    ]
 
 
 def test_legacy_file_is_upgraded_through_both_migrations():
