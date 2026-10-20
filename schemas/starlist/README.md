@@ -100,16 +100,16 @@ field is preferred to a new form wherever the meaning allows it.
 
 A *generation* is a set of versions that need no migration between them: a
 reader reads any released version of its own generation up to its own version,
-and refuses newer ones. The generations are `0.2` for 0.2.z, `0.3` for 0.3.z
-(the current one), and so on, then `1` for 1.y.z, and `legacy` for everything
-before 0.2.0 (files with no `schema_version`,
+and refuses newer ones. The generations are `0.2` for 0.2.z, `0.3` for 0.3.z,
+`0.4` for 0.4.z (the current one), and so on, then `1` for 1.y.z, and `legacy`
+for everything before 0.2.0 (files with no `schema_version`,
 package-version strings such as `0.0.1.dev451+gde1568f`, or a version below
 0.2.0 such as `0.0.1`).
 Crossing a generation boundary requires a migration.
 
 Every generation that has been left behind keeps a *frozen* copy of its models
 in its own module (`_aavso_starlist_legacy.py` for the legacy generation,
-`_aavso_starlist_v0_2.py` for 0.2), so
+`_aavso_starlist_v0_2.py` for 0.2, `_aavso_starlist_v0_3.py` for 0.3), so
 that an old file can still be validated against the schema it was written for.
 The live models in `aavso_starlist_schema.py` are always the current generation.
 
@@ -132,20 +132,20 @@ Cargo uses for `0.y.z` versions, chosen so that a minor bump while `0.y.z`,
 like a major bump from 1.0.0 on, always means a migration is needed.
 
 The steps are listed in the order they are done. The ones marked *new
-generation only* are for a breaking change (0.2 → 0.3, or 1 → 2 from 1.0.0
+generation only* are for a breaking change (0.3 → 0.4, or 1 → 2 from 1.0.0
 on). Any other change (a patch bump while `0.y.z`, a minor or patch bump from
 1.0.0 on) skips them: it only changes the models, bumps the version,
 generates, archives and runs the tests.
 
 1. *New generation only.* Before touching the live models, make a frozen copy
    of the models of the generation being left, in a new module named for it,
-   e.g. `_aavso_starlist_v0_2.py`, made when leaving 0.2. Copy
-   `AAVSOFilters`, `StarItem`, `StarList` and `StarListSet` with their fields
-   only: no mixins, no methods, no validators that upgrade. Replace anything
-   computed from `SCHEMA_VERSION` (the `version` key and the `schema_version`
-   examples and pattern) with the literal value. The module must not import
-   from `aavso_starlist_schema`. `_aavso_starlist_v0_2.py` is the example to
-   follow. Check the copy straight away with
+   e.g. `_aavso_starlist_v0_3.py`, made when leaving 0.3. Copy
+   `AAVSOFilters`, `BayerChannels`, `StarItem`, `StarList` and `StarListSet`
+   with their fields only: no mixins, no methods, no validators that upgrade.
+   Replace anything computed from `SCHEMA_VERSION` (the `version` key and the
+   `schema_version` examples and pattern) with the literal value. The module
+   must not import from `aavso_starlist_schema`. `_aavso_starlist_v0_3.py` is
+   the example to follow. Check the copy straight away with
    `uv run pytest -k test_frozen_model_matches_its_archive`: the test finds
    every `_aavso_starlist_*.py` module by its name, registered or not, and
    passes once the copy generates the same schema as the newest archive of its
@@ -159,11 +159,22 @@ generates, archives and runs the tests.
    to the new one, and register it in `_MIGRATIONS` in
    `aavso_starlist_schema.py` together with the frozen `StarListSet`.
    `_migrate_legacy_to_0_2` is the template for a no-op migration, when no
-   data has to change, and `_migrate_0_2_to_0_3` for one that fills in a new
-   required field. A migration is never edited once released. It
-   takes a dict and returns the migrated dict; `upgrade()` stamps the target
-   version on the result. It is given a deep copy, so it may modify its
-   argument in place. Through `model_validate_json`, `model_validate` and the
+   data has to change, `_migrate_0_2_to_0_3` for one that fills in a new
+   required field with a value from its domain, and `_migrate_0_3_to_0_4` for
+   one that fills it with `null`. A migration must produce data that is
+   valid for the new generation, since a file valid for its own generation
+   is promised to be valid after migration (that is what
+   `MigrationResultError` means). So a new required field needs a value
+   every old file can carry: a value in the field's domain that says
+   "unknown" when there is one (`photometry_software` gets `["unknown"]`),
+   otherwise `null`, in which case the field must be declared nullable
+   (`float | None`) when the live model is changed in step 2 (`bias` gets
+   `null`, because no number honestly stands in for a bias the file did not
+   record). The field's description says what upgraded files carry. A
+   migration is never edited once released. It takes a dict and returns the
+   migrated dict; `upgrade()` stamps the target version on the result. It is
+   given a deep copy, so it may modify its argument in place. Through
+   `model_validate_json`, `model_validate` and the
    constructor, the dict holds only plain JSON data (dicts, lists, strings,
    numbers, booleans and `None`): data built in Python is converted once the
    frozen model has accepted it, keeping keys that model ignores. `upgrade()`
@@ -172,7 +183,7 @@ generates, archives and runs the tests.
 6. *New generation only.* Add a `before.json`/`after.json` pair of sample
    files under
    `tests/data/migrations/<old generation>_to_<new generation>/`, e.g.
-   `legacy_to_0.2`, `0.2_to_0.3`, `0.9_to_1`. `before.json` must be valid for
+   `legacy_to_0.2`, `0.3_to_0.4`, `0.9_to_1`. `before.json` must be valid for
    the frozen model of the old generation and `after.json` for the new one.
 7. Run `uv run pytest`. It treats an unexpected `SchemaMigrationWarning` as an
    error, so a test that reads a file of an older generation must expect the
