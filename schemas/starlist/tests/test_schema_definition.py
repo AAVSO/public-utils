@@ -118,6 +118,128 @@ def test_star_item_fwhm_rejects_infinity_and_nan(value):
         StarItem.model_validate(data)
 
 
+def test_bias_round_trips():
+    # The example bias is accepted and survives a JSON round trip as a float.
+    star_list = StarList.from_examples()
+
+    assert star_list.bias == 1000.0
+    assert StarList.model_validate_json(star_list.model_dump_json()).bias == 1000.0
+
+
+def test_bias_accepts_none_but_is_required():
+    # bias may be null, meaning not reported, but the key may not be left
+    # out, unlike absolute_focus. (That the JSON schema lists it as required
+    # is checked by test_bias_schema_is_a_required_nullable_non_negative_number.)
+    data = StarList.from_examples().model_dump()
+    data["bias"] = None
+    assert StarList.model_validate(data).bias is None
+
+    del data["bias"]
+    with pytest.raises(ValidationError, match="bias"):
+        StarList.model_validate(data)
+
+
+def test_bias_is_required_in_a_current_file():
+    # A file at the current version must give bias for every star list. It
+    # is not upgraded, so without a warning (pytest treats an unexpected
+    # SchemaMigrationWarning as an error), and the field is not filled in.
+    star_list = StarList.from_examples().model_dump(mode="json")
+    del star_list["bias"]
+    data = {"schema_version": SCHEMA_VERSION, "star_lists": [star_list]}
+
+    with pytest.raises(ValidationError, match="bias"):
+        StarListSet.model_validate(data)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(-1.0, id="negative"),
+        pytest.param(float("inf"), id="infinite"),
+        pytest.param(float("nan"), id="nan"),
+        pytest.param("high", id="non-numeric"),
+    ],
+)
+def test_bias_rejects_bad_values(value):
+    # A negative bias, or a non-numeric one, is rejected. So are infinity and
+    # NaN: JSON has neither, so pydantic would write either as null, which is
+    # a valid bias meaning "not reported"; the value would be lost with no
+    # error.
+    data = StarList.from_examples().model_dump()
+    data["bias"] = value
+
+    with pytest.raises(ValidationError, match="bias"):
+        StarList.model_validate(data)
+
+
+def test_bias_schema_is_a_required_nullable_non_negative_number():
+    # The generated schema says bias is a non-negative number or null, and
+    # lists it among the required properties.
+    schema = StarList.model_json_schema()
+
+    assert schema["properties"]["bias"]["anyOf"] == [
+        {"type": "number", "minimum": 0},
+        {"type": "null"},
+    ]
+    assert schema["properties"]["bias"]["unit"] == "adu"
+    assert "bias" in schema["required"]
+
+
+def test_bias_markdown_row():
+    # The markdown table writes bias with its type as in the source, its
+    # unit and its example.
+    row = next(line for line in StarList.markdown_table().splitlines() if "| bias |" in line)
+    cells = row.split(" | ")
+
+    assert cells[0] == "| Bias Level"
+    assert cells[2] == r"float \| None"
+    assert cells[3] == "adu"
+    assert cells[5] == "1000.0 |"
+
+
+@pytest.mark.parametrize("bias", [1000.0, None], ids=["number", "none"])
+def test_bias_survives_a_table_round_trip(bias):
+    # bias is carried in the table metadata, a number or None, so a star list
+    # turned into a table and back in memory keeps it.
+    data = StarList.from_examples().model_dump()
+    data["bias"] = bias
+    data["staritems"] = [StarItem.from_examples()]
+    star_list = StarList.model_validate(data)
+
+    table = star_list.to_table()
+
+    assert table.meta["bias"] == bias
+    assert StarList.from_table(table) == star_list
+
+
+@pytest.mark.parametrize("bias", [1000.0, None], ids=["number", "none"])
+def test_table_with_either_bias_is_written_to_ecsv_and_read_back(tmp_path, bias):
+    # A table whose metadata holds a bias, a number or None, is written to
+    # ECSV, where None appears as null, and read back into the same star list.
+    data = StarList.from_examples().model_dump()
+    data["bias"] = bias
+    data["staritems"] = [StarItem.from_examples()]
+    star_list = StarList.model_validate(data)
+    path = tmp_path / "starlist.ecsv"
+
+    star_list.to_table().write(path, format="ascii.ecsv")
+    read_back = StarList.from_table(Table.read(path, format="ascii.ecsv"))
+
+    assert f"bias: {'null' if bias is None else bias}" in path.read_text()
+    assert read_back.bias == bias
+    assert read_back == star_list
+
+
+def test_from_table_requires_bias_in_the_metadata():
+    # bias is required, so a table whose metadata lacks it is rejected by
+    # from_table with the usual message, not accepted with a default.
+    table = _single_star_table()
+    del table.meta["bias"]
+
+    with pytest.raises(ValueError, match="Missing keys in metadata: bias$"):
+        StarList.from_table(table)
+
+
 def test_photometry_software_is_required_in_a_current_file():
     # A file at the current version must give photometry_software for every
     # star list. It is not upgraded, so without a warning (pytest treats an

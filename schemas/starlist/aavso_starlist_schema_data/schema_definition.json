@@ -313,6 +313,23 @@
           "type": "number",
           "unit": "e-/adu"
         },
+        "bias": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Bias (offset) level of this frame in adu: the constant pedestal the camera adds to every pixel, as a zero-second exposure with no light would read, as present in the pixel values the counts in this star list were measured from. Required: a new file should give a number. `null` means the bias was not reported; files upgraded from a schema version before 0.4.0 carry `null`.",
+          "examples": [
+            1000.0
+          ],
+          "title": "Bias Level",
+          "unit": "adu"
+        },
         "fwhm": {
           "description": "Typical full width at half maximum of the stars in this image",
           "examples": [
@@ -396,6 +413,7 @@
         "adc_depth",
         "largest_usable_adu_value",
         "egain",
+        "bias",
         "fwhm",
         "refframe",
         "photometry_software",
@@ -410,9 +428,9 @@
     "schema_version": {
       "description": "The version of this schema that the file was written against, assigned by AAVSO",
       "examples": [
-        "0.3.1"
+        "0.4.0"
       ],
-      "pattern": "^(0\\.3\\.0|0\\.3\\.1)$",
+      "pattern": "^(0\\.4\\.0)$",
       "title": "Starlist Schema Version",
       "type": "string",
       "unit": "none"
@@ -436,5 +454,5 @@
   ],
   "title": "StarListSet",
   "type": "object",
-  "version": "0.3.1"
+  "version": "0.4.0"
 }
