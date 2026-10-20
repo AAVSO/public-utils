@@ -21,6 +21,16 @@
       "title": "AAVSOFilters",
       "type": "string"
     },
+    "BayerChannels": {
+      "description": "Channels of a Bayer colour filter array.\n\nA one-shot-colour camera may report a value, such as its gain, per\nchannel of its Bayer mosaic; such a value is keyed by these names. ``G``\ncovers both green pixels of an RGGB mosaic.",
+      "enum": [
+        "R",
+        "G",
+        "B"
+      ],
+      "title": "BayerChannels",
+      "type": "string"
+    },
     "StarItem": {
       "description": "Definition of individual entries in an AAVSO star list.",
       "properties": {
@@ -304,13 +314,33 @@
           "unit": "adu"
         },
         "egain": {
-          "description": "Gain of the camera in e-/adu",
-          "examples": [
-            1.2
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "additionalProperties": {
+                "minimum": 0,
+                "type": "number"
+              },
+              "minProperties": 1,
+              "propertyNames": {
+                "$ref": "#/$defs/BayerChannels"
+              },
+              "type": "object"
+            }
           ],
-          "minimum": 0,
+          "description": "Gain of the camera in e-/adu: one value for the whole sensor, or one per Bayer channel of a one-shot-colour camera, keyed by channel (R, G or B). A channel that is left out has no reported gain.",
+          "examples": [
+            1.2,
+            {
+              "B": 1.3,
+              "G": 1.2,
+              "R": 1.1
+            }
+          ],
           "title": "System gain",
-          "type": "number",
           "unit": "e-/adu"
         },
         "fwhm": {
@@ -410,9 +440,9 @@
     "schema_version": {
       "description": "The version of this schema that the file was written against, assigned by AAVSO",
       "examples": [
-        "0.3.1"
+        "0.3.2"
       ],
-      "pattern": "^(0\\.3\\.0|0\\.3\\.1)$",
+      "pattern": "^(0\\.3\\.0|0\\.3\\.1|0\\.3\\.2)$",
       "title": "Starlist Schema Version",
       "type": "string",
       "unit": "none"
@@ -436,5 +466,5 @@
   ],
   "title": "StarListSet",
   "type": "object",
-  "version": "0.3.1"
+  "version": "0.3.2"
 }

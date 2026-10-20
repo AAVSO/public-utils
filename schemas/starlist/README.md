@@ -85,7 +85,13 @@ legacy file and upgraded with a warning, see below). The generated
 | --- | --- | --- |
 | Description/docs only | patch | patch |
 | New optional field | minor | patch |
+| Field accepts an additional form (e.g. a number or a dict of numbers) | minor | patch |
 | New required field, removal, changed meaning | major | minor |
+
+Accepting an additional form is not breaking for files: every older file of
+the generation is still valid, and a reader already refuses files newer than
+itself. Code that consumes the field must handle the new form, though, so the
+change is called out in the field's description.
 
 A *generation* is a set of versions that need no migration between them: a
 reader reads any released version of its own generation up to its own version,
