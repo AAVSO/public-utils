@@ -14,7 +14,8 @@ from collections import defaultdict
 from collections.abc import Callable, Mapping
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, NamedTuple
+from types import UnionType
+from typing import Annotated, NamedTuple, Union, get_args, get_origin
 
 from astropy.table import Table
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -91,6 +92,37 @@ class AAVSOFilters(StrEnum):
     CV = "CV"
 
 
+def _type_name(annotation):
+    """
+    Render a field annotation the way it is written in the source.
+
+    Parameters
+    ----------
+    annotation : type or typing special form
+        The ``annotation`` of a pydantic ``FieldInfo``.
+
+    Returns
+    -------
+    str
+        ``Annotated[...]`` wrappers are dropped, a union is written with
+        ``|``, ``NoneType`` is ``None``, and a generic names its parameters,
+        so ``list[StarItem]`` is ``list[StarItem]`` and ``dict[key, value]``
+        names both of its parameters. Any other type, such as an enum or a
+        model class, is its ``__name__``, or its ``str()`` if it has none.
+    """
+    origin = get_origin(annotation)
+    if origin is Annotated:
+        return _type_name(get_args(annotation)[0])
+    if origin is Union or origin is UnionType:
+        return " | ".join(_type_name(arg) for arg in get_args(annotation))
+    if origin is not None:
+        params = ", ".join(_type_name(arg) for arg in get_args(annotation))
+        return f"{_type_name(origin)}[{params}]"
+    if annotation is type(None):
+        return "None"
+    return getattr(annotation, "__name__", str(annotation))
+
+
 class PrettyPrintMixin:
     """
     Mixin to render a pydantic model's fields as a markdown table.
@@ -106,14 +138,17 @@ class PrettyPrintMixin:
         rows = ["| Title | JSON Field | Type | Unit | Description | Examples |"]
         rows.append("| --- | --- | --- | --- | --- | --- |")
         for name, field_info in cls.model_fields.items():
-            type_name = getattr(field_info.annotation, "__name__", field_info.annotation)
             # Escape the pipe in a union such as ``int | None`` so it does not
             # split the cell.
-            type_name = str(type_name).replace("|", r"\|")
+            type_name = _type_name(field_info.annotation).replace("|", r"\|")
+            # The example is written as it would appear in a JSON file: enum
+            # members as their value, None as null, strings in double quotes.
+            example = json.dumps(to_jsonable_python(field_info.examples[0]), ensure_ascii=False)
+            example = example.replace("|", r"\|")
             row = (
                 f"| {field_info.title} | {name} | {type_name} "
                 f"| {field_info.json_schema_extra['unit']} "
-                f"| {field_info.description} | {field_info.examples[0]} |"
+                f"| {field_info.description} | {example} |"
             )
             rows.append(row)
 
