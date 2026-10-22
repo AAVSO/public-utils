@@ -15,6 +15,7 @@ import _aavso_starlist_v0_3
 from aavso_starlist_schema import (
     _MIGRATIONS,
     SCHEMA_VERSION,
+    BayerGains,
     MigrationResultError,
     NewerSchemaVersionError,
     SchemaMigrationWarning,
@@ -1067,7 +1068,7 @@ def test_0_3_file_keeps_its_other_fields_when_upgraded():
         result = StarListSet.model_validate(before)
 
     first, second = result.star_lists
-    assert first.egain == {"R": 1.1, "G": 1.2, "B": 1.3}
+    assert first.egain == BayerGains(R=1.1, G=1.2, B=1.3)
     assert second.egain == 1.2
     assert [item.fwhm for item in first.staritems] == [3.4, None]
     assert first.photometry_software == ["bandaid 1.2.3", "browser-photometry 4.5.6"]

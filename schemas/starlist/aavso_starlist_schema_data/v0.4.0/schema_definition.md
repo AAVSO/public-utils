@@ -2,8 +2,8 @@
 
 | Title | JSON Field | Type | Unit | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
-| Starlist Schema Version | schema_version | str | none | The version of this schema that the file was written against, assigned by AAVSO | 0.4.0 |
-| Star List Set | star_lists | list | none | List of star lists | [] |
+| Starlist Schema Version | schema_version | str | none | The version of this schema that the file was written against, assigned by AAVSO | "0.4.0" |
+| Star List Set | star_lists | list[StarList] | none | List of star lists | [] |
 
 
 
@@ -13,29 +13,43 @@
 
 | Title | JSON Field | Type | Unit | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
-| Observation Start Time | obs_time | str | None | UTC time at start of observation | 2021-06-15T03:45:00 |
+| Observation Start Time | obs_time | str | None | UTC time at start of observation | "2021-06-15T03:45:00" |
 | Site Latitude | site_lat | float | degree | Latitude of the observing site | -41.56896 |
 | Site Longitude | site_lon | float | degree | Longitude of the observing site | -71.23841 |
 | Site Elevation | site_elev | float | meter | Observer's elevation above mean sea level | 211.0 |
-| Observer Code | observer | str | none | AAVSO code of the observer | MMU |
-| Filter | filter | AAVSOFilters | none | Filter used for the observation, from https://www.aavso.org/filters | TG |
-| Blocking Filter | block_filter | str | none | Name of blocking filter used on telescope | UV+IR |
+| Observer Code | observer | str | none | AAVSO code of the observer | "MMU" |
+| Filter | filter | AAVSOFilters | none | Filter used for the observation, from https://www.aavso.org/filters | "TG" |
+| Blocking Filter | block_filter | str | none | Name of blocking filter used on telescope | "UV+IR" |
 | Exposure Time | exposure | float | second | Effective duration of exposure | 30.0 |
-| Telescope Manufacturer | tel_manufac | str | none | Name of the telescope manufacturer | Celestron |
+| Telescope Manufacturer | tel_manufac | str | none | Name of the telescope manufacturer | "Celestron" |
 | Image Width | width | int | pixel | Width of the image in pixels | 2048 |
 | Image Height | height | int | pixel | Height of the image in pixels | 1024 |
 | Number of images | stack | int \| None | none | Number of images stacked to create this image. If not applicable, set to None. | 3 |
-| Telescope Model | tel_model | str | none | Model of the telescope | Origin 1 |
-| Telescope Firmware | tel_firmware | str | none | Firmware version of the telescope | 20240817.01 |
+| Telescope Model | tel_model | str | none | Model of the telescope | "Origin 1" |
+| Telescope Firmware | tel_firmware | str | none | Firmware version of the telescope | "20240817.01" |
 | A/D Converter Bit Depth | adc_depth | int | bit | Bit depth of the analog-to-digital converter | 14 |
 | Largest Usable ADU Value | largest_usable_adu_value | int | adu | Largest usable analog-to-digital unit value | 41000 |
-| System gain | egain | float \| dict[BayerChannels, float] | e-/adu | Gain of the camera in e-/adu: one value for the whole sensor, or one per Bayer channel of a one-shot-colour camera, keyed by channel (R, G or B). A channel that is left out has no reported gain. | 1.2 |
+| System gain | egain | float \| BayerGains | e-/adu | Gain of the camera in e-/adu: one value for the whole sensor, or one per Bayer channel of a one-shot-colour camera, keyed by channel (R, G and B, all three required) | 1.2 |
 | Bias Level | bias | float \| None | adu | Bias (offset) level of this frame in adu: the constant pedestal the camera adds to every pixel, as a zero-second exposure with no light would read, as present in the pixel values the counts in this star list were measured from. Required: a new file should give a number. `null` means the bias was not reported; files upgraded from a schema version before 0.4.0 carry `null`. | 1000.0 |
-| Typical FWHM | fwhm | float | pixel | Typical full width at half maximum of the stars in this image; each star item may carry its own `fwhm` | 3.5 |
-| Coordinate Reference Frame | refframe | str | none | Reference frame of the observation | ICRS |
-| Photometry Software | photometry_software | list | none | Software used to produce this photometry, one entry per package, each written as `<name> <version>`. Files upgraded from a schema version before 0.3.0 carry `["unknown"]`. | ['bandaid 1.2.3', 'browser-photometry 4.5.6'] |
+| Typical FWHM | fwhm | float | pixel | Typical full width at half maximum of the stars in this image | 3.5 |
+| Coordinate Reference Frame | refframe | str | none | Reference frame of the observation | "ICRS" |
+| Photometry Software | photometry_software | list[str] | none | Software used to produce this photometry, one entry per package, each written as `<name> <version>`. Files upgraded from a schema version before 0.3.0 carry `["unknown"]`. | ["bandaid 1.2.3", "browser-photometry 4.5.6"] |
 | Absolute Focus Position | absolute_focus | float \| None | none | Absolute focus position of the telescope, in the focuser's native units (typically motor steps), comparable only between images from the same telescope model. None if not available. | 1823.0 |
-| Star Items | staritems | list | none | List of stars detected in the image | [] |
+| Star Items | staritems | list[StarItem] | none | List of stars detected in the image | [] |
+
+
+
+
+
+# Bayer Gains
+
+The per-channel form of a star list's `egain` (type `BayerGains`), for a one-shot-colour camera.
+
+| Title | JSON Field | Type | Unit | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| Red gain | R | float | e-/adu | Gain of the red channel in e-/adu | 1.1 |
+| Green gain | G | float | e-/adu | Gain of the green channel in e-/adu | 1.2 |
+| Blue gain | B | float | e-/adu | Gain of the blue channel in e-/adu | 1.3 |
 
 
 

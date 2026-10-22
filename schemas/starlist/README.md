@@ -140,7 +140,7 @@ generates, archives and runs the tests.
 1. *New generation only.* Before touching the live models, make a frozen copy
    of the models of the generation being left, in a new module named for it,
    e.g. `_aavso_starlist_v0_3.py`, made when leaving 0.3. Copy
-   `AAVSOFilters`, `BayerChannels`, `StarItem`, `StarList` and `StarListSet`
+   `AAVSOFilters`, `BayerGains`, `StarItem`, `StarList` and `StarListSet`
    with their fields only: no mixins, no methods, no validators that upgrade.
    Replace anything computed from `SCHEMA_VERSION` (the `version` key and the
    `schema_version` examples and pattern) with the literal value. The module

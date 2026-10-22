@@ -23,7 +23,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
-__all__ = ["AAVSOFilters", "BayerChannels", "StarItem", "StarList", "StarListSet"]
+__all__ = ["AAVSOFilters", "BayerGains", "StarItem", "StarList", "StarListSet"]
 
 
 class AAVSOFilters(StrEnum):
@@ -50,18 +50,48 @@ class AAVSOFilters(StrEnum):
     CV = "CV"
 
 
-class BayerChannels(StrEnum):
+class BayerGains(BaseModel):
     """
-    Channels of a Bayer colour filter array.
+    The gain of each channel of a one-shot-colour camera's Bayer mosaic.
 
-    A one-shot-colour camera may report a value, such as its gain, per
-    channel of its Bayer mosaic; such a value is keyed by these names. ``G``
-    covers both green pixels of an RGGB mosaic.
+    All three channels are required, since every channel has a gain; G
+    covers both green pixels of an RGGB mosaic. No other keys are allowed.
     """
-    R = "R"
-    G = "G"
-    B = "B"
+    model_config = ConfigDict(extra="forbid")
 
+    R: Annotated[
+        float,
+        Field(
+            ge=0,
+            allow_inf_nan=False,
+            title="Red gain",
+            description="Gain of the red channel in e-/adu",
+            json_schema_extra=dict(unit="e-/adu"),
+            examples=[1.1]
+        )
+    ]
+    G: Annotated[
+        float,
+        Field(
+            ge=0,
+            allow_inf_nan=False,
+            title="Green gain",
+            description="Gain of the green channel in e-/adu",
+            json_schema_extra=dict(unit="e-/adu"),
+            examples=[1.2]
+        )
+    ]
+    B: Annotated[
+        float,
+        Field(
+            ge=0,
+            allow_inf_nan=False,
+            title="Blue gain",
+            description="Gain of the blue channel in e-/adu",
+            json_schema_extra=dict(unit="e-/adu"),
+            examples=[1.3]
+        )
+    ]
 
 
 class StarItem(BaseModel):
@@ -170,7 +200,6 @@ class StarItem(BaseModel):
             examples=[3.4]
         )
     ] = None
-
 
 
 class StarList(BaseModel):
@@ -338,18 +367,13 @@ class StarList(BaseModel):
         )
     ]
     egain: Annotated[
-        Annotated[float, Field(ge=0, allow_inf_nan=False)]
-        | Annotated[
-            dict[BayerChannels, Annotated[float, Field(ge=0, allow_inf_nan=False)]],
-            Field(min_length=1),
-        ],
+        Annotated[float, Field(ge=0, allow_inf_nan=False)] | BayerGains,
         Field(
             title="System gain",
             description=(
                 "Gain of the camera in e-/adu: one value for the whole sensor, "
                 "or one per Bayer channel of a one-shot-colour camera, keyed by "
-                "channel (R, G or B). A channel that is left out has no "
-                "reported gain."
+                "channel (R, G and B, all three required)"
             ),
             json_schema_extra=dict(unit="e-/adu"),
             examples=[1.2, {"R": 1.1, "G": 1.2, "B": 1.3}]
@@ -360,10 +384,7 @@ class StarList(BaseModel):
         Field(
             gt=0,
             title="Typical FWHM",
-            description=(
-                "Typical full width at half maximum of the stars in this "
-                "image; each star item may carry its own `fwhm`"
-            ),
+            description="Typical full width at half maximum of the stars in this image",
             json_schema_extra=dict(unit="pixel"),
             examples=[3.5]
         )
