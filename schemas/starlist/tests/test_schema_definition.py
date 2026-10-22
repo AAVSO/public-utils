@@ -114,7 +114,7 @@ def test_star_item_fwhm_rejects_infinity_and_nan(value):
     data = StarItem.from_examples().model_dump()
     data["fwhm"] = value
 
-    with pytest.raises(ValidationError, match="finite number|greater than 0"):
+    with pytest.raises(ValidationError, match="finite number"):
         StarItem.model_validate(data)
 
 

@@ -480,10 +480,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
         Field(
             gt=0,
             title="Typical FWHM",
-            description=(
-                "Typical full width at half maximum of the stars in this "
-                "image; each star item may carry its own `fwhm`"
-            ),
+            description="Typical full width at half maximum of the stars in this image",
             json_schema_extra=dict(unit="pixel"),
             examples=[3.5]
         )
@@ -543,8 +540,11 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
         ----------
         table : `astropy.table.Table`
             The input table containing one row per star item. Columns of
-            optional `StarItem` fields, such as ``fwhm``, may be omitted; a
-            masked or NaN entry in one reads as None.
+            optional `StarItem` fields, such as ``fwhm``, may be omitted. When
+            such a column is present it is read and validated like any other:
+            a masked or NaN entry reads as None, and every other entry must
+            be a valid value for the field (for ``fwhm``, a finite number
+            greater than 0).
 
         metadata : dict, optional
             Additional metadata to use in the StarList object.
@@ -626,13 +626,16 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
 
         # An optional column with a None in it becomes a masked column, masked
         # where the value is None, so that from_table reads the None back. The
-        # fill value assumes optional star item fields are numbers, as fwhm is.
+        # data under the mask is NaN rather than a number that could pass for
+        # a measurement if the mask is ever dropped: from_table reads NaN back
+        # as None, and np.asarray(column) shows the gap for what it is. This
+        # assumes optional star item fields are numbers, as fwhm is.
         for col, values in table_dict.items():
             if not StarItem.model_fields[col].is_required() and any(
                 value is None for value in values
             ):
                 table_dict[col] = MaskedColumn(
-                    [0.0 if value is None else value for value in values],
+                    [np.nan if value is None else value for value in values],
                     mask=[value is None for value in values],
                 )
 

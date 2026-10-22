@@ -314,7 +314,7 @@
           "unit": "e-/adu"
         },
         "fwhm": {
-          "description": "Typical full width at half maximum of the stars in this image; each star item may carry its own `fwhm`",
+          "description": "Typical full width at half maximum of the stars in this image",
           "examples": [
             3.5
           ],
