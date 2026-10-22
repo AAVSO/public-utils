@@ -846,6 +846,54 @@ def test_current_file_with_star_item_fwhm_round_trips():
     assert result.model_dump(mode="json") == data
 
 
+@pytest.mark.parametrize("version", ["0.3.0", "0.3.1"])
+def test_file_from_before_egain_per_channel_reads_its_scalar_egain(version):
+    # Files of the 0.3 generation written before 0.3.2 carry a single egain;
+    # they are read as current without a warning (pytest treats an unexpected
+    # SchemaMigrationWarning as an error) and keep that value. The 0.3.0
+    # sample is after.json of the 0.2 migration; 0.3.1 has no sample, so the
+    # example data is stamped with it.
+    if version == "0.3.0":
+        _, data = _before_after_pair("0.2")
+    else:
+        data = _example_data(schema_version=version)
+    assert data["schema_version"] == version
+    assert all(isinstance(star_list["egain"], float) for star_list in data["star_lists"])
+
+    result = StarListSet.model_validate(data)
+
+    assert result.schema_version == SCHEMA_VERSION
+    assert [star_list.egain for star_list in result.star_lists] == [
+        star_list["egain"] for star_list in data["star_lists"]
+    ]
+
+
+def test_legacy_file_is_upgraded_with_its_scalar_egain():
+    # A legacy file is migrated through both generations and keeps its single
+    # egain, which is still a valid form.
+    before, _ = _before_after_pair("legacy")
+
+    with pytest.warns(SchemaMigrationWarning):
+        result = StarListSet.model_validate(before)
+
+    assert result.schema_version == SCHEMA_VERSION
+    assert result.star_lists[0].egain == before["star_lists"][0]["egain"]
+
+
+def test_current_file_with_egain_per_channel_round_trips():
+    # A file at the current version giving egain per Bayer channel is read
+    # without a warning (pytest treats an unexpected SchemaMigrationWarning as
+    # an error), keeps the values, and is written back unchanged.
+    star_list = StarList.from_examples().model_dump(mode="json")
+    star_list["egain"] = {"R": 1.1, "G": 1.2, "B": 1.3}
+    data = _example_data(star_lists=[star_list])
+
+    result = StarListSet.model_validate_json(json.dumps(data))
+
+    assert result.star_lists[0].egain.model_dump() == {"R": 1.1, "G": 1.2, "B": 1.3}
+    assert result.model_dump(mode="json") == data
+
+
 def _written_at_0_2(version):
     """
     Load the sample file written at a version of the 0.2 generation.

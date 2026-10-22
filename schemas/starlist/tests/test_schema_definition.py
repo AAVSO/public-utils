@@ -11,6 +11,7 @@ from aavso_starlist_schema import (
     DATA_DIR,
     SCHEMA_VERSION,
     AAVSOFilters,
+    BayerGains,
     StarItem,
     StarList,
     StarListSet,
@@ -116,6 +117,117 @@ def test_star_item_fwhm_rejects_infinity_and_nan(value):
 
     with pytest.raises(ValidationError, match="finite number"):
         StarItem.model_validate(data)
+
+
+def _example_egain_per_channel():
+    """
+    Give the per-channel example value of ``egain``.
+
+    Returns
+    -------
+    dict of str to float
+        The second example of `StarList.egain`, one gain per Bayer channel.
+    """
+    example = StarList.model_fields["egain"].examples[1]
+    assert isinstance(example, dict)
+    return example
+
+
+def test_egain_scalar_round_trips():
+    # A single system gain, the only form before 0.3.2, is still accepted and
+    # survives a JSON round trip as a float.
+    star_list = StarList.from_examples()
+
+    assert star_list.egain == 1.2
+    assert StarList.model_validate_json(star_list.model_dump_json()).egain == 1.2
+
+
+def test_egain_per_channel_round_trips():
+    # A gain per Bayer channel is accepted and reads as a BayerGains model
+    # with a float per channel, written back as a JSON object keyed by the
+    # channel names.
+    data = StarList.from_examples().model_dump()
+    data["egain"] = _example_egain_per_channel()
+
+    star_list = StarList.model_validate(data)
+
+    assert star_list.egain == BayerGains(R=1.1, G=1.2, B=1.3)
+    assert (star_list.egain.R, star_list.egain.G, star_list.egain.B) == (1.1, 1.2, 1.3)
+    assert json.loads(star_list.model_dump_json())["egain"] == {"R": 1.1, "G": 1.2, "B": 1.3}
+    assert StarList.model_validate_json(star_list.model_dump_json()) == star_list
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param({"R": 1.1, "G": 1.2, "B": 1.3, "L": 1.0}, id="unknown-channel"),
+        pytest.param({"r": 1.1, "g": 1.2, "b": 1.3}, id="lower-case-channels"),
+        pytest.param({"R": 1.1, "G": 1.2}, id="missing-channel"),
+        pytest.param({}, id="empty"),
+        pytest.param({"R": -1.0, "G": 1.2, "B": 1.3}, id="negative-channel-gain"),
+        pytest.param({"R": float("inf"), "G": 1.2, "B": 1.3}, id="infinite-channel-gain"),
+        pytest.param({"R": float("nan"), "G": 1.2, "B": 1.3}, id="nan-channel-gain"),
+        pytest.param({"R": "high", "G": 1.2, "B": 1.3}, id="non-numeric-channel-gain"),
+        pytest.param(float("inf"), id="infinite-scalar"),
+        pytest.param(float("nan"), id="nan-scalar"),
+        pytest.param(-1.0, id="negative-scalar"),
+        pytest.param("high", id="non-numeric-scalar"),
+    ],
+)
+def test_egain_rejects_bad_values(value):
+    # The per-channel form needs exactly the three channels R, G and B, in
+    # that spelling, and neither form admits a negative gain or a non-numeric
+    # one. An infinite or NaN gain is rejected too: JSON has neither, so
+    # pydantic would write it as null, which does not read back.
+    data = StarList.from_examples().model_dump()
+    data["egain"] = value
+
+    with pytest.raises(ValidationError):
+        StarList.model_validate(data)
+
+
+def test_egain_schema_offers_both_forms_and_requires_every_channel():
+    # The generated schema says egain is a non-negative number or an object
+    # with exactly the three channel keys, each a non-negative number.
+    schema = StarList.model_json_schema()
+    number, per_channel = schema["properties"]["egain"]["anyOf"]
+    gains = schema["$defs"]["BayerGains"]
+
+    assert number == {"type": "number", "minimum": 0}
+    assert per_channel == {"$ref": "#/$defs/BayerGains"}
+    assert gains["required"] == ["R", "G", "B"]
+    assert gains["additionalProperties"] is False
+    assert all(
+        gains["properties"][channel]["type"] == "number"
+        and gains["properties"][channel]["minimum"] == 0
+        for channel in ("R", "G", "B")
+    )
+
+
+def test_egain_markdown_row_names_both_forms():
+    # The markdown table writes egain's type as in the source, not as
+    # pydantic's internal Union[Annotated[...]] spelling.
+    row = next(
+        line for line in StarList.markdown_table().splitlines() if "| egain |" in line
+    )
+
+    assert row.split(" | ")[2] == r"float \| BayerGains"
+
+
+def test_markdown_document_has_a_bayer_gains_section():
+    # The human-readable schema documents the per-channel form of egain in
+    # its own section, between the star list and the star item, with one row
+    # per channel, so a reader can find what the BayerGains type holds.
+    document = _generate_markdown()
+    headings = [line for line in document.splitlines() if line.startswith("# ")]
+    section = document.split("# Bayer Gains")[1].split("# Star Item")[0]
+
+    assert headings == ["# Star List Set", "# Star List", "# Bayer Gains", "# Star Item"]
+    assert [line.split(" | ")[1] for line in section.splitlines() if line.startswith("| ")][2:] == [
+        "R",
+        "G",
+        "B",
+    ]
 
 
 def test_photometry_software_is_required_in_a_current_file():
@@ -548,6 +660,40 @@ def test_to_table_keeps_optional_star_item_column_plain_when_no_none():
 
     assert not isinstance(table["fwhm"], MaskedColumn)
     assert list(table["fwhm"]) == [3.4, 3.4]
+
+
+def test_table_round_trip_keeps_egain_per_channel():
+    # A per-channel egain goes into the table metadata as plain strings and
+    # numbers, and from_table reads it back as the same star list.
+    data = StarList.from_examples().model_dump()
+    data["egain"] = _example_egain_per_channel()
+    data["staritems"] = [StarItem.from_examples()]
+    star_list = StarList.model_validate(data)
+
+    table = star_list.to_table()
+
+    assert table.meta["egain"] == {"R": 1.1, "G": 1.2, "B": 1.3}
+    assert type(table.meta["egain"]) is dict
+    assert all(type(k) is str and type(v) is float for k, v in table.meta["egain"].items())
+    assert StarList.from_table(table) == star_list
+
+
+@pytest.mark.parametrize("egain", [1.2, {"R": 1.1, "G": 1.2, "B": 1.3}], ids=["scalar", "per-channel"])
+def test_table_with_either_egain_is_written_to_ecsv_and_read_back(tmp_path, egain):
+    # The table metadata holds plain JSON types only (the filter enum member
+    # is a string), so the table can be written to ECSV, which could not be
+    # done while the meta held enum members; reading the file back and
+    # passing it to from_table gives the same star list, with either egain.
+    data = StarList.from_examples().model_dump()
+    data["egain"] = egain
+    data["staritems"] = [StarItem.from_examples()]
+    star_list = StarList.model_validate(data)
+    path = tmp_path / "starlist.ecsv"
+
+    star_list.to_table().write(path, format="ascii.ecsv")
+    read_back = StarList.from_table(Table.read(path, format="ascii.ecsv"))
+
+    assert read_back == star_list
 
 
 def test_make_table_from_starlist():

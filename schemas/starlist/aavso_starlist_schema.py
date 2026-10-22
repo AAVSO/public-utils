@@ -34,16 +34,17 @@ except ImportError:  # pragma: no cover - source tree without the generated file
 # deliberately independent of the package version above: bump it whenever the
 # generated schema under aavso_starlist_schema_data/ changes. The archive test
 # fails if the generated schema changes without bumping this constant.
-SCHEMA_VERSION = "0.3.1"
+SCHEMA_VERSION = "0.3.2"
 
 # Every released schema version from 0.2.0 on, oldest first; add each new
 # SCHEMA_VERSION here. Listed in the code, rather than read from the archive
 # folders, so the versions this reader accepts never depend on the filesystem.
 # The archive test fails if this differs from the archived versions.
-_RELEASED_VERSIONS = ("0.2.0", "0.2.1", "0.3.0", "0.3.1")
+_RELEASED_VERSIONS = ("0.2.0", "0.2.1", "0.3.0", "0.3.1", "0.3.2")
 
 __all__ = [
     "AAVSOFilters",
+    "BayerGains",
     "StarItem",
     "StarList",
     "StarListSet",
@@ -191,6 +192,50 @@ def _is_missing(value):
         # Not a number (a string, say), or an array cell with no single truth
         # value: either way it is a value, not a gap.
         return False
+
+
+class BayerGains(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
+    """
+    The gain of each channel of a one-shot-colour camera's Bayer mosaic.
+
+    All three channels are required, since every channel has a gain; G
+    covers both green pixels of an RGGB mosaic. No other keys are allowed.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    R: Annotated[
+        float,
+        Field(
+            ge=0,
+            allow_inf_nan=False,
+            title="Red gain",
+            description="Gain of the red channel in e-/adu",
+            json_schema_extra=dict(unit="e-/adu"),
+            examples=[1.1]
+        )
+    ]
+    G: Annotated[
+        float,
+        Field(
+            ge=0,
+            allow_inf_nan=False,
+            title="Green gain",
+            description="Gain of the green channel in e-/adu",
+            json_schema_extra=dict(unit="e-/adu"),
+            examples=[1.2]
+        )
+    ]
+    B: Annotated[
+        float,
+        Field(
+            ge=0,
+            allow_inf_nan=False,
+            title="Blue gain",
+            description="Gain of the blue channel in e-/adu",
+            json_schema_extra=dict(unit="e-/adu"),
+            examples=[1.3]
+        )
+    ]
 
 
 class StarItem(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
@@ -466,13 +511,16 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
         )
     ]
     egain: Annotated[
-        float,
+        Annotated[float, Field(ge=0, allow_inf_nan=False)] | BayerGains,
         Field(
-            ge=0,
             title="System gain",
-            description="Gain of the camera in e-/adu",
+            description=(
+                "Gain of the camera in e-/adu: one value for the whole sensor, "
+                "or one per Bayer channel of a one-shot-colour camera, keyed by "
+                "channel (R, G and B, all three required)"
+            ),
             json_schema_extra=dict(unit="e-/adu"),
-            examples=[1.2]
+            examples=[1.2, {"R": 1.1, "G": 1.2, "B": 1.3}]
         )
     ]
     fwhm: Annotated[
@@ -615,7 +663,8 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             star item has None is a float `astropy.table.MaskedColumn`, masked
             where the value is None, so that `from_table` reads it back as
             None. The remaining information from the starlist is stored in
-            the table metadata.
+            the table metadata as plain JSON types (an enum member becomes
+            its string value), so the table can be written to a file.
 
         """
         table_dict = {col: [] for col in StarItem.model_fields}
@@ -638,7 +687,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
                     mask=[value is None for value in values],
                 )
 
-        table_meta = self.model_dump()
+        table_meta = self.model_dump(mode="json")
         table_meta.pop("staritems")
 
         return Table(table_dict, meta=table_meta)
@@ -1287,7 +1336,8 @@ def _nice_name(name):
 def _generate_markdown():
     """
     Generate document with the container class, StarListSet, up at top,
-    followed by the individual StarList StarItem classes.
+    followed by the individual StarList and StarItem classes, with the
+    BayerGains form of a star list's egain between them.
 
     That reads a little better than the other way around.
     """
@@ -1296,6 +1346,10 @@ def _generate_markdown():
         StarListSet.markdown_table() + 3 * "\n\n" +
         "# " + _nice_name(StarList.__name__) + "\n\n" +
         StarList.markdown_table() + 3 * "\n\n" +
+        "# " + _nice_name(BayerGains.__name__) + "\n\n" +
+        "The per-channel form of a star list's `egain` (type `BayerGains`), "
+        "for a one-shot-colour camera.\n\n" +
+        BayerGains.markdown_table() + 3 * "\n\n" +
         "# " + _nice_name(StarItem.__name__) + "\n\n" +
         StarItem.markdown_table() +
         # Please please end with a single newline....many editors will add one
