@@ -198,7 +198,7 @@ class BayerGains(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin)
     """
     The gain of each channel of a one-shot-colour camera's Bayer mosaic.
 
-    All three channels are required, since every channel has a gain; ``G``
+    All three channels are required, since every channel has a gain; G
     covers both green pixels of an RGGB mosaic. No other keys are allowed.
     """
     model_config = ConfigDict(extra="forbid")
@@ -1347,6 +1347,8 @@ def _generate_markdown():
         "# " + _nice_name(StarList.__name__) + "\n\n" +
         StarList.markdown_table() + 3 * "\n\n" +
         "# " + _nice_name(BayerGains.__name__) + "\n\n" +
+        "The per-channel form of a star list's `egain` (type `BayerGains`), "
+        "for a one-shot-colour camera.\n\n" +
         BayerGains.markdown_table() + 3 * "\n\n" +
         "# " + _nice_name(StarItem.__name__) + "\n\n" +
         StarItem.markdown_table() +

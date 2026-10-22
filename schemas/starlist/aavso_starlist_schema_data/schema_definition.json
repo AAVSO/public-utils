@@ -23,7 +23,7 @@
     },
     "BayerGains": {
       "additionalProperties": false,
-      "description": "The gain of each channel of a one-shot-colour camera's Bayer mosaic.\n\nAll three channels are required, since every channel has a gain; ``G``\ncovers both green pixels of an RGGB mosaic. No other keys are allowed.",
+      "description": "The gain of each channel of a one-shot-colour camera's Bayer mosaic.\n\nAll three channels are required, since every channel has a gain; G\ncovers both green pixels of an RGGB mosaic. No other keys are allowed.",
       "properties": {
         "R": {
           "description": "Gain of the red channel in e-/adu",

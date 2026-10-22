@@ -42,6 +42,8 @@
 
 # Bayer Gains
 
+The per-channel form of a star list's `egain` (type `BayerGains`), for a one-shot-colour camera.
+
 | Title | JSON Field | Type | Unit | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | Red gain | R | float | e-/adu | Gain of the red channel in e-/adu | 1.1 |

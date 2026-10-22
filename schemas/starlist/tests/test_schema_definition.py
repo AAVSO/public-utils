@@ -218,8 +218,9 @@ def test_markdown_document_has_a_bayer_gains_section():
     # The human-readable schema documents the per-channel form of egain in
     # its own section, between the star list and the star item, with one row
     # per channel, so a reader can find what the BayerGains type holds.
-    headings = [line for line in _generate_markdown().splitlines() if line.startswith("# ")]
-    section = _generate_markdown().split("# Bayer Gains")[1].split("# Star Item")[0]
+    document = _generate_markdown()
+    headings = [line for line in document.splitlines() if line.startswith("# ")]
+    section = document.split("# Bayer Gains")[1].split("# Star Item")[0]
 
     assert headings == ["# Star List Set", "# Star List", "# Bayer Gains", "# Star Item"]
     assert [line.split(" | ")[1] for line in section.splitlines() if line.startswith("| ")][2:] == [
@@ -673,6 +674,7 @@ def test_table_round_trip_keeps_egain_per_channel():
 
     assert table.meta["egain"] == {"R": 1.1, "G": 1.2, "B": 1.3}
     assert type(table.meta["egain"]) is dict
+    assert all(type(k) is str and type(v) is float for k, v in table.meta["egain"].items())
     assert StarList.from_table(table) == star_list
 
 
