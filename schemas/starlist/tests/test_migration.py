@@ -11,9 +11,11 @@ from pydantic import ValidationError
 
 import _aavso_starlist_legacy
 import _aavso_starlist_v0_2
+import _aavso_starlist_v0_3
 from aavso_starlist_schema import (
     _MIGRATIONS,
     SCHEMA_VERSION,
+    BayerGains,
     MigrationResultError,
     NewerSchemaVersionError,
     SchemaMigrationWarning,
@@ -262,10 +264,10 @@ def test_each_migration_step_receives_data_stamped_with_its_source_version(mocke
 def test_gap_in_migration_chain_names_the_generation_without_a_migration(mocker):
     # A breaking bump whose migration out of the generation being left has not
     # been written yet must say so, not fail with a bare KeyError. Simulate a
-    # bump to 1.0.0 with no migration out of 0.3: a legacy file still has its
-    # steps to 0.2 and 0.3, then has nowhere to go.
+    # bump to 1.0.0 with no migration out of 0.4: a legacy file still has its
+    # steps to 0.2, 0.3 and 0.4, then has nowhere to go.
     mocker.patch("aavso_starlist_schema.SCHEMA_VERSION", "1.0.0")
-    expected = "no migration out of schema generation '0.3'"
+    expected = "no migration out of schema generation '0.4'"
 
     with pytest.raises(UnsupportedSchemaVersionError, match=expected):
         upgrade({"star_lists": []})
@@ -797,9 +799,7 @@ def test_legacy_file_is_upgraded_with_absolute_focus_none():
 
 def test_file_from_before_star_item_fwhm_reads_it_as_none():
     # The 0.3.0 sample file predates the per-star fwhm (added in 0.3.1); it is
-    # in the current generation, so it is read without a warning (pytest
-    # treats an unexpected SchemaMigrationWarning as an error), restamped at
-    # the current version, with fwhm None on every star item.
+    # upgraded to the current version with fwhm None on every star item.
     _, written_at_0_3_0 = _before_after_pair("0.2")
     assert written_at_0_3_0["schema_version"] == "0.3.0"
     star_items = [
@@ -808,7 +808,8 @@ def test_file_from_before_star_item_fwhm_reads_it_as_none():
     assert star_items
     assert all("fwhm" not in item for item in star_items)
 
-    result = StarListSet.model_validate(written_at_0_3_0)
+    with pytest.warns(SchemaMigrationWarning):
+        result = StarListSet.model_validate(written_at_0_3_0)
 
     assert result.schema_version == SCHEMA_VERSION
     assert [item.fwhm for star_list in result.star_lists for item in star_list.staritems] == [
@@ -817,7 +818,7 @@ def test_file_from_before_star_item_fwhm_reads_it_as_none():
 
 
 def test_legacy_file_is_upgraded_with_star_item_fwhm_none():
-    # A legacy file is migrated through both generations and restamped at
+    # A legacy file is migrated through every generation and restamped at
     # the current version, and every star item reads the per-star fwhm added
     # since as None.
     before, _ = _before_after_pair("legacy")
@@ -849,18 +850,14 @@ def test_current_file_with_star_item_fwhm_round_trips():
 @pytest.mark.parametrize("version", ["0.3.0", "0.3.1"])
 def test_file_from_before_egain_per_channel_reads_its_scalar_egain(version):
     # Files of the 0.3 generation written before 0.3.2 carry a single egain;
-    # they are read as current without a warning (pytest treats an unexpected
-    # SchemaMigrationWarning as an error) and keep that value. The 0.3.0
+    # they are upgraded to the current version and keep that value. The 0.3.0
     # sample is after.json of the 0.2 migration; 0.3.1 has no sample, so the
-    # example data is stamped with it.
-    if version == "0.3.0":
-        _, data = _before_after_pair("0.2")
-    else:
-        data = _example_data(schema_version=version)
-    assert data["schema_version"] == version
+    # 0.3.2 sample is stamped with it, its per-channel egain made scalar.
+    data = _written_at_0_3(version)
     assert all(isinstance(star_list["egain"], float) for star_list in data["star_lists"])
 
-    result = StarListSet.model_validate(data)
+    with pytest.warns(SchemaMigrationWarning):
+        result = StarListSet.model_validate(data)
 
     assert result.schema_version == SCHEMA_VERSION
     assert [star_list.egain for star_list in result.star_lists] == [
@@ -869,7 +866,7 @@ def test_file_from_before_egain_per_channel_reads_its_scalar_egain(version):
 
 
 def test_legacy_file_is_upgraded_with_its_scalar_egain():
-    # A legacy file is migrated through both generations and keeps its single
+    # A legacy file is migrated through every generation and keeps its single
     # egain, which is still a valid form.
     before, _ = _before_after_pair("legacy")
 
@@ -966,9 +963,9 @@ def test_0_2_file_with_photometry_software_already_gets_unknown(value):
     ]
 
 
-def test_legacy_file_is_upgraded_through_both_migrations():
-    # A legacy file is migrated to 0.2 and then to 0.3, and so gets
-    # photometry_software ["unknown"] too. (That the warning names both steps
+def test_legacy_file_is_upgraded_through_every_migration():
+    # A legacy file is migrated to 0.2, then 0.3, then 0.4, and so gets
+    # photometry_software ["unknown"] too. (That the warning names every step
     # is checked by test_legacy_versions_are_upgraded_with_warning.)
     before, _ = _before_after_pair("legacy")
 
@@ -994,6 +991,146 @@ def test_0_2_migration_passes_unrecognised_shapes_through(data):
     # only when it is called directly, since the frozen model refuses them.
     snapshot = copy.deepcopy(data)
     assert _MIGRATIONS["0.2"].func(data) == snapshot
+
+
+def _written_at_0_3(version):
+    """
+    Build the sample file written at a version of the 0.3 generation.
+
+    Parameters
+    ----------
+    version : {"0.3.0", "0.3.1", "0.3.2"}
+        The version the file states.
+
+    Returns
+    -------
+    dict
+        For 0.3.0, ``after.json`` of the 0.2 migration, which predates the
+        per-star ``fwhm`` and the per-channel ``egain``; for 0.3.2,
+        ``before.json`` of the 0.3 migration, which has both on its first
+        star list and a scalar ``egain`` on its second; for 0.3.1, that same
+        file restamped, with the per-channel ``egain`` (added in 0.3.2)
+        replaced by a scalar, since 0.3.1 has no sample of its own. None has
+        a ``bias``.
+    """
+    if version == "0.3.0":
+        _, data = _before_after_pair("0.2")
+    else:
+        data, _ = _before_after_pair("0.3")
+        if version == "0.3.1":
+            data = copy.deepcopy(data)
+            data["schema_version"] = "0.3.1"
+            data["star_lists"][0]["egain"] = 1.2
+    assert data["schema_version"] == version
+    assert all("bias" not in star_list for star_list in data["star_lists"])
+    return data
+
+
+@pytest.mark.parametrize("version", ["0.3.0", "0.3.1", "0.3.2"])
+def test_0_3_file_is_validated_against_the_frozen_0_3_model(version):
+    # validate_as_written checks a file from any 0.3 version against the
+    # frozen 0.3 model, without upgrading it, so without a warning (pytest
+    # treats an unexpected SchemaMigrationWarning as an error).
+    result = validate_as_written(_written_at_0_3(version))
+
+    assert isinstance(result, _aavso_starlist_v0_3.StarListSet)
+    assert result.schema_version == version
+
+
+@pytest.mark.parametrize("version", ["0.3.0", "0.3.1", "0.3.2"])
+def test_0_3_file_is_upgraded_with_bias_none(version):
+    # A file from any 0.3 version is upgraded with one warning, naming the
+    # 0.3 migration but not the earlier ones, and every star list gets bias
+    # None, meaning not reported.
+    with pytest.warns(SchemaMigrationWarning) as record:
+        result = StarListSet.model_validate(_written_at_0_3(version))
+
+    assert len(record) == 1
+    message = str(record[0].message)
+    assert repr(version) in message
+    assert _MIGRATIONS["0.3"].summary in message
+    assert _MIGRATIONS["0.2"].summary not in message
+    assert _MIGRATIONS["legacy"].summary not in message
+
+    assert result.schema_version == SCHEMA_VERSION
+    assert [star_list.bias for star_list in result.star_lists] == [None] * len(
+        result.star_lists
+    )
+
+
+def test_0_3_file_keeps_its_other_fields_when_upgraded():
+    # The 0.3 migration adds bias and changes nothing else: both forms of
+    # egain, the per-star fwhm (set and unset), photometry_software and
+    # absolute_focus come through as written.
+    before = _written_at_0_3("0.3.2")
+
+    with pytest.warns(SchemaMigrationWarning):
+        result = StarListSet.model_validate(before)
+
+    first, second = result.star_lists
+    assert first.egain == BayerGains(R=1.1, G=1.2, B=1.3)
+    assert second.egain == 1.2
+    assert [item.fwhm for item in first.staritems] == [3.4, None]
+    assert first.photometry_software == ["bandaid 1.2.3", "browser-photometry 4.5.6"]
+    assert second.photometry_software == ["unknown"]
+    assert first.absolute_focus == 1823.0
+    assert second.absolute_focus is None
+    # Dumping the written star lists through the frozen 0.3 model spells out
+    # the defaults a file may leave out (a star item's fwhm, say), so the
+    # upgraded dump must equal that plus bias None, and nothing else.
+    written = _aavso_starlist_v0_3.StarListSet.model_validate(before).model_dump(mode="json")
+    upgraded = result.model_dump(mode="json")
+    assert upgraded["star_lists"] == [
+        {**star_list, "bias": None} for star_list in written["star_lists"]
+    ]
+
+
+@pytest.mark.parametrize("value", [1000.0, -1.0, "high", None])
+def test_0_3_file_with_bias_already_gets_none(value):
+    # The frozen 0.3 models ignore keys they do not define, so a 0.3 file may
+    # carry a bias key, valid for 0.4 or not. The 0.3 schema never validated
+    # it, so the migration replaces it with None like any other 0.3 star
+    # list, and a file valid for 0.3 is always valid after migration.
+    data = copy.deepcopy(_written_at_0_3("0.3.2"))
+    data["star_lists"][0]["bias"] = value
+
+    with pytest.warns(SchemaMigrationWarning):
+        result = StarListSet.model_validate(data)
+
+    assert [star_list.bias for star_list in result.star_lists] == [None, None]
+
+
+@pytest.mark.parametrize("generation", ["legacy", "0.2"])
+def test_older_file_is_upgraded_through_every_migration_with_bias_none(generation):
+    # A legacy or 0.2 file is migrated through every generation to 0.4, and
+    # so gets bias None as well as photometry_software ["unknown"]. (That the
+    # warning names every step is checked by
+    # test_legacy_versions_are_upgraded_with_warning.)
+    before, _ = _before_after_pair(generation)
+
+    with pytest.warns(SchemaMigrationWarning):
+        result = StarListSet.model_validate(before)
+
+    assert result.schema_version == SCHEMA_VERSION
+    assert all(star_list.bias is None for star_list in result.star_lists)
+    assert all(star_list.photometry_software == ["unknown"] for star_list in result.star_lists)
+
+
+@pytest.mark.parametrize("bias", [1000.0, None], ids=["number", "none"])
+def test_current_file_with_bias_round_trips(bias):
+    # A file at the current version that gives a bias is read without a
+    # warning (pytest treats an unexpected SchemaMigrationWarning as an
+    # error), keeps the value, and is written back unchanged; so is one that
+    # gives null, which is a valid current file saying the bias was not
+    # reported.
+    star_list = StarList.from_examples().model_dump(mode="json")
+    star_list["bias"] = bias
+    data = _example_data(star_lists=[star_list])
+
+    result = StarListSet.model_validate_json(json.dumps(data))
+
+    assert result.star_lists[0].bias == bias
+    assert result.model_dump(mode="json") == data
 
 
 def test_current_file_with_absolute_focus_round_trips():

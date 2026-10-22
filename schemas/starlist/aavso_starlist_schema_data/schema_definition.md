@@ -2,7 +2,7 @@
 
 | Title | JSON Field | Type | Unit | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
-| Starlist Schema Version | schema_version | str | none | The version of this schema that the file was written against, assigned by AAVSO | "0.3.2" |
+| Starlist Schema Version | schema_version | str | none | The version of this schema that the file was written against, assigned by AAVSO | "0.4.0" |
 | Star List Set | star_lists | list[StarList] | none | List of star lists | [] |
 
 
@@ -30,6 +30,7 @@
 | A/D Converter Bit Depth | adc_depth | int | bit | Bit depth of the analog-to-digital converter | 14 |
 | Largest Usable ADU Value | largest_usable_adu_value | int | adu | Largest usable analog-to-digital unit value | 41000 |
 | System gain | egain | float \| BayerGains | e-/adu | Gain of the camera in e-/adu: one value for the whole sensor, or one per Bayer channel of a one-shot-colour camera, keyed by channel (R, G and B, all three required) | 1.2 |
+| Bias Level | bias | float \| None | adu | Bias (offset) level of this frame in adu: the constant pedestal the camera adds to every pixel, as a zero-second exposure with no light would read, as present in the pixel values the counts in this star list were measured from. Required: a new file should give a number. `null` means the bias was not reported; files upgraded from a schema version before 0.4.0 carry `null`. | 1000.0 |
 | Typical FWHM | fwhm | float | pixel | Typical full width at half maximum of the stars in this image | 3.5 |
 | Coordinate Reference Frame | refframe | str | none | Reference frame of the observation | "ICRS" |
 | Photometry Software | photometry_software | list[str] | none | Software used to produce this photometry, one entry per package, each written as `<name> <version>`. Files upgraded from a schema version before 0.3.0 carry `["unknown"]`. | ["bandaid 1.2.3", "browser-photometry 4.5.6"] |
