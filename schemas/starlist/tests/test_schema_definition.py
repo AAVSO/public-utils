@@ -1,16 +1,20 @@
 import json
 import re
+from typing import Annotated, Optional
 
 import pytest
 from astropy.table import Table
+from pydantic import ValidationError
 
 from aavso_starlist_schema import (
     DATA_DIR,
     SCHEMA_VERSION,
+    AAVSOFilters,
     StarItem,
     StarList,
     StarListSet,
     _generate_markdown,
+    _type_name,
     cli,
     generate_star_list_set_schema,
     generate_starlist_schema,
@@ -72,6 +76,42 @@ def test_absolute_focus_is_kept_when_present():
     assert StarList.model_validate_json(star_list.model_dump_json()).absolute_focus == 1823.0
 
 
+def test_photometry_software_is_required_in_a_current_file():
+    # A file at the current version must give photometry_software for every
+    # star list. It is not upgraded, so without a warning (pytest treats an
+    # unexpected SchemaMigrationWarning as an error), and the field is not
+    # filled in for it.
+    star_list = StarList.from_examples().model_dump(mode="json")
+    del star_list["photometry_software"]
+    data = {"schema_version": SCHEMA_VERSION, "star_lists": [star_list]}
+
+    assert "photometry_software" in StarList.model_json_schema()["required"]
+    with pytest.raises(ValidationError, match="photometry_software"):
+        StarListSet.model_validate(data)
+
+
+@pytest.mark.parametrize("value", [[], [""], ["bandaid 1.2.3", ""]])
+def test_photometry_software_rejects_empty_values(value):
+    # photometry_software needs at least one entry, and no entry may be empty.
+    data = StarList.from_examples().model_dump()
+    data["photometry_software"] = value
+
+    with pytest.raises(ValidationError, match="photometry_software"):
+        StarList.model_validate(data)
+
+
+def test_photometry_software_survives_a_table_round_trip():
+    # photometry_software is carried in the table metadata, so a star list
+    # turned into a table and back keeps it.
+    star_list = StarList.from_examples()
+    star_list.staritems = [StarItem.from_examples()]
+
+    result = StarList.from_table(star_list.to_table())
+
+    assert result.photometry_software == ["bandaid 1.2.3", "browser-photometry 4.5.6"]
+    assert result == star_list
+
+
 def _count_cells(row):
     """
     Count the cells in one row of a markdown table.
@@ -97,6 +137,97 @@ def test_markdown_table_rows_have_as_many_cells_as_the_header(klass):
 
     for row in rows:
         assert _count_cells(row) == _count_cells(header), row
+
+
+def _markdown_row(klass, field_name):
+    """
+    Find the row of a field in a model's markdown table, split into cells.
+
+    Parameters
+    ----------
+    klass : type
+        A model with a ``markdown_table`` method.
+    field_name : str
+        The name of the field, as written in the JSON Field column.
+
+    Returns
+    -------
+    dict
+        The row's cells, stripped of surrounding spaces, keyed by the column
+        headers. Pipes escaped as ``\\|`` stay inside their cell.
+    """
+    header, _, *rows = klass.markdown_table().splitlines()
+
+    def split(row):
+        """
+        Split a markdown table row into its stripped cells.
+
+        Parameters
+        ----------
+        row : str
+            A table row, beginning and ending with ``|``.
+
+        Returns
+        -------
+        list of str
+            The cells, split only at pipes not escaped as ``\\|``.
+        """
+        return [cell.strip() for cell in re.split(r"(?<!\\)\|", row)[1:-1]]
+
+    columns = split(header)
+    for row in rows:
+        cells = dict(zip(columns, split(row), strict=True))
+        if cells["JSON Field"] == field_name:
+            return cells
+    raise AssertionError(f"No row for {field_name} in the {klass.__name__} table")
+
+
+@pytest.mark.parametrize(
+    "klass, field_name, type_name, example",
+    [
+        (
+            StarList,
+            "photometry_software",
+            "list[str]",
+            '["bandaid 1.2.3", "browser-photometry 4.5.6"]',
+        ),
+        (StarList, "absolute_focus", r"float \| None", "1823.0"),
+        (StarList, "staritems", "list[StarItem]", "[]"),
+        (StarList, "filter", "AAVSOFilters", '"TG"'),
+        (StarList, "observer", "str", '"MMU"'),
+        (StarListSet, "star_lists", "list[StarList]", "[]"),
+    ],
+)
+def test_markdown_table_renders_type_and_example(klass, field_name, type_name, example):
+    # The Type column names a type as the source writes it, with the
+    # parameters of a generic and an escaped pipe in a union, and the Examples
+    # column holds the example as JSON: strings in double quotes, a list in
+    # JSON syntax and an enum member as its string value.
+    row = _markdown_row(klass, field_name)
+
+    assert row["Type"] == type_name
+    assert row["Examples"] == example
+
+
+@pytest.mark.parametrize(
+    "annotation, expected",
+    [
+        (Annotated[float, "metadata"], "float"),
+        (int | None, "int | None"),
+        (Optional[int], "int | None"),  # noqa: UP045 - the typing.Union spelling is the point
+        (type(None), "None"),
+        (list[str], "list[str]"),
+        (list[StarItem], "list[StarItem]"),
+        (dict[AAVSOFilters, float], "dict[AAVSOFilters, float]"),
+        (Annotated[list[float] | None, "metadata"], "list[float] | None"),
+        (AAVSOFilters, "AAVSOFilters"),
+    ],
+)
+def test_type_name(annotation, expected):
+    # _type_name drops Annotated, joins a union (either spelling) with " | ",
+    # writes NoneType as None, keeps the parameters of a generic, and names an
+    # enum or class by its __name__.
+    assert _type_name(annotation) == expected
 
 
 def test_starlist_json():

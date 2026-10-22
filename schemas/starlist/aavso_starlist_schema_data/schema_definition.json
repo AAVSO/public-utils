@@ -314,6 +314,23 @@
           "type": "string",
           "unit": "none"
         },
+        "photometry_software": {
+          "description": "Software used to produce this photometry, one entry per package, each written as `<name> <version>`. Files upgraded from a schema version before 0.3.0 carry `[\"unknown\"]`.",
+          "examples": [
+            [
+              "bandaid 1.2.3",
+              "browser-photometry 4.5.6"
+            ]
+          ],
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Photometry Software",
+          "type": "array",
+          "unit": "none"
+        },
         "absolute_focus": {
           "anyOf": [
             {
@@ -363,6 +380,7 @@
         "egain",
         "fwhm",
         "refframe",
+        "photometry_software",
         "staritems"
       ],
       "title": "StarList",
@@ -374,9 +392,9 @@
     "schema_version": {
       "description": "The version of this schema that the file was written against, assigned by AAVSO",
       "examples": [
-        "0.2.1"
+        "0.3.0"
       ],
-      "pattern": "^(0\\.2\\.0|0\\.2\\.1)$",
+      "pattern": "^(0\\.3\\.0)$",
       "title": "Starlist Schema Version",
       "type": "string",
       "unit": "none"
@@ -400,5 +418,5 @@
   ],
   "title": "StarListSet",
   "type": "object",
-  "version": "0.2.1"
+  "version": "0.3.0"
 }
