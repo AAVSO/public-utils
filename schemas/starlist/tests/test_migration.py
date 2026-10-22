@@ -879,6 +879,23 @@ def test_legacy_file_is_upgraded_through_both_migrations():
     assert result.star_lists[0].photometry_software == ["unknown"]
 
 
+@pytest.mark.parametrize(
+    "data",
+    [
+        pytest.param({"schema_version": "0.2.1"}, id="no-star_lists"),
+        pytest.param({"schema_version": "0.2.1", "star_lists": {"a": 1}}, id="mapping"),
+        pytest.param({"schema_version": "0.2.1", "star_lists": [1, None]}, id="non-mapping-entries"),
+    ],
+)
+def test_0_2_migration_passes_unrecognised_shapes_through(data):
+    # The 0.2 -> 0.3 migration only touches a list or tuple of star lists, and
+    # within it only mapping or model entries. Anything else is returned
+    # unchanged for validation to reject. These shapes reach the migration
+    # only when it is called directly, since the frozen model refuses them.
+    snapshot = copy.deepcopy(data)
+    assert _MIGRATIONS["0.2"].func(data) == snapshot
+
+
 def test_current_file_with_absolute_focus_round_trips():
     # A file at the current version that sets absolute_focus is read without
     # a warning (pytest treats an unexpected SchemaMigrationWarning as an
