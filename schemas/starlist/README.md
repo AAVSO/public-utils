@@ -90,8 +90,13 @@ legacy file and upgraded with a warning, see below). The generated
 
 Accepting an additional form is not breaking for files: every older file of
 the generation is still valid, and a reader already refuses files newer than
-itself. Code that consumes the field must handle the new form, though, so the
-change is called out in the field's description.
+itself. It is breaking for Python code that consumes the field, though, since
+the field's Python type changes (`egain` became `float | BayerGains` in
+0.3.2). The package version carries that news: a change that alters a
+field's Python type is at least a minor bump of the package while it is
+0.y.z, and a major one from 1.0.0 on, whatever it does to the schema
+version. The new form is called out in the field's description, and a new
+field is preferred to a new form wherever the meaning allows it.
 
 A *generation* is a set of versions that need no migration between them: a
 reader reads any released version of its own generation up to its own version,

@@ -44,7 +44,7 @@ _RELEASED_VERSIONS = ("0.2.0", "0.2.1", "0.3.0", "0.3.1", "0.3.2")
 
 __all__ = [
     "AAVSOFilters",
-    "BayerChannels",
+    "BayerGains",
     "StarItem",
     "StarList",
     "StarListSet",
@@ -91,19 +91,6 @@ class AAVSOFilters(StrEnum):
     SI = "SI"
     CR = "CR"
     CV = "CV"
-
-
-class BayerChannels(StrEnum):
-    """
-    Channels of a Bayer colour filter array.
-
-    A one-shot-colour camera may report a value, such as its gain, per
-    channel of its Bayer mosaic; such a value is keyed by these names. ``G``
-    covers both green pixels of an RGGB mosaic.
-    """
-    R = "R"
-    G = "G"
-    B = "B"
 
 
 def _type_name(annotation):
@@ -205,6 +192,50 @@ def _is_missing(value):
         # Not a number (a string, say), or an array cell with no single truth
         # value: either way it is a value, not a gap.
         return False
+
+
+class BayerGains(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
+    """
+    The gain of each channel of a one-shot-colour camera's Bayer mosaic.
+
+    All three channels are required, since every channel has a gain; ``G``
+    covers both green pixels of an RGGB mosaic. No other keys are allowed.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    R: Annotated[
+        float,
+        Field(
+            ge=0,
+            allow_inf_nan=False,
+            title="Red gain",
+            description="Gain of the red channel in e-/adu",
+            json_schema_extra=dict(unit="e-/adu"),
+            examples=[1.1]
+        )
+    ]
+    G: Annotated[
+        float,
+        Field(
+            ge=0,
+            allow_inf_nan=False,
+            title="Green gain",
+            description="Gain of the green channel in e-/adu",
+            json_schema_extra=dict(unit="e-/adu"),
+            examples=[1.2]
+        )
+    ]
+    B: Annotated[
+        float,
+        Field(
+            ge=0,
+            allow_inf_nan=False,
+            title="Blue gain",
+            description="Gain of the blue channel in e-/adu",
+            json_schema_extra=dict(unit="e-/adu"),
+            examples=[1.3]
+        )
+    ]
 
 
 class StarItem(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
@@ -480,18 +511,13 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
         )
     ]
     egain: Annotated[
-        Annotated[float, Field(ge=0, allow_inf_nan=False)]
-        | Annotated[
-            dict[BayerChannels, Annotated[float, Field(ge=0, allow_inf_nan=False)]],
-            Field(min_length=1),
-        ],
+        Annotated[float, Field(ge=0, allow_inf_nan=False)] | BayerGains,
         Field(
             title="System gain",
             description=(
                 "Gain of the camera in e-/adu: one value for the whole sensor, "
                 "or one per Bayer channel of a one-shot-colour camera, keyed by "
-                "channel (R, G or B). A channel that is left out has no "
-                "reported gain."
+                "channel (R, G and B, all three required)"
             ),
             json_schema_extra=dict(unit="e-/adu"),
             examples=[1.2, {"R": 1.1, "G": 1.2, "B": 1.3}]
@@ -1310,7 +1336,8 @@ def _nice_name(name):
 def _generate_markdown():
     """
     Generate document with the container class, StarListSet, up at top,
-    followed by the individual StarList StarItem classes.
+    followed by the individual StarList and StarItem classes, with the
+    BayerGains form of a star list's egain between them.
 
     That reads a little better than the other way around.
     """
@@ -1319,6 +1346,8 @@ def _generate_markdown():
         StarListSet.markdown_table() + 3 * "\n\n" +
         "# " + _nice_name(StarList.__name__) + "\n\n" +
         StarList.markdown_table() + 3 * "\n\n" +
+        "# " + _nice_name(BayerGains.__name__) + "\n\n" +
+        BayerGains.markdown_table() + 3 * "\n\n" +
         "# " + _nice_name(StarItem.__name__) + "\n\n" +
         StarItem.markdown_table() +
         # Please please end with a single newline....many editors will add one

@@ -29,12 +29,24 @@
 | Telescope Firmware | tel_firmware | str | none | Firmware version of the telescope | "20240817.01" |
 | A/D Converter Bit Depth | adc_depth | int | bit | Bit depth of the analog-to-digital converter | 14 |
 | Largest Usable ADU Value | largest_usable_adu_value | int | adu | Largest usable analog-to-digital unit value | 41000 |
-| System gain | egain | float \| dict[BayerChannels, float] | e-/adu | Gain of the camera in e-/adu: one value for the whole sensor, or one per Bayer channel of a one-shot-colour camera, keyed by channel (R, G or B). A channel that is left out has no reported gain. | 1.2 |
+| System gain | egain | float \| BayerGains | e-/adu | Gain of the camera in e-/adu: one value for the whole sensor, or one per Bayer channel of a one-shot-colour camera, keyed by channel (R, G and B, all three required) | 1.2 |
 | Typical FWHM | fwhm | float | pixel | Typical full width at half maximum of the stars in this image | 3.5 |
 | Coordinate Reference Frame | refframe | str | none | Reference frame of the observation | "ICRS" |
 | Photometry Software | photometry_software | list[str] | none | Software used to produce this photometry, one entry per package, each written as `<name> <version>`. Files upgraded from a schema version before 0.3.0 carry `["unknown"]`. | ["bandaid 1.2.3", "browser-photometry 4.5.6"] |
 | Absolute Focus Position | absolute_focus | float \| None | none | Absolute focus position of the telescope, in the focuser's native units (typically motor steps), comparable only between images from the same telescope model. None if not available. | 1823.0 |
 | Star Items | staritems | list[StarItem] | none | List of stars detected in the image | [] |
+
+
+
+
+
+# Bayer Gains
+
+| Title | JSON Field | Type | Unit | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| Red gain | R | float | e-/adu | Gain of the red channel in e-/adu | 1.1 |
+| Green gain | G | float | e-/adu | Gain of the green channel in e-/adu | 1.2 |
+| Blue gain | B | float | e-/adu | Gain of the blue channel in e-/adu | 1.3 |
 
 
 

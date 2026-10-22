@@ -11,7 +11,7 @@ from aavso_starlist_schema import (
     DATA_DIR,
     SCHEMA_VERSION,
     AAVSOFilters,
-    BayerChannels,
+    BayerGains,
     StarItem,
     StarList,
     StarListSet,
@@ -143,17 +143,16 @@ def test_egain_scalar_round_trips():
 
 
 def test_egain_per_channel_round_trips():
-    # A gain per Bayer channel is accepted; the keys read as BayerChannels
-    # members (which compare equal to their strings) and the values as
-    # floats, and the dict is written back as plain strings and numbers.
+    # A gain per Bayer channel is accepted and reads as a BayerGains model
+    # with a float per channel, written back as a JSON object keyed by the
+    # channel names.
     data = StarList.from_examples().model_dump()
     data["egain"] = _example_egain_per_channel()
 
     star_list = StarList.model_validate(data)
 
-    assert star_list.egain == {"R": 1.1, "G": 1.2, "B": 1.3}
-    assert all(isinstance(key, BayerChannels) for key in star_list.egain)
-    assert all(type(value) is float for value in star_list.egain.values())
+    assert star_list.egain == BayerGains(R=1.1, G=1.2, B=1.3)
+    assert (star_list.egain.R, star_list.egain.G, star_list.egain.B) == (1.1, 1.2, 1.3)
     assert json.loads(star_list.model_dump_json())["egain"] == {"R": 1.1, "G": 1.2, "B": 1.3}
     assert StarList.model_validate_json(star_list.model_dump_json()) == star_list
 
@@ -161,21 +160,25 @@ def test_egain_per_channel_round_trips():
 @pytest.mark.parametrize(
     "value",
     [
-        pytest.param({"L": 1.0}, id="unknown-channel"),
+        pytest.param({"R": 1.1, "G": 1.2, "B": 1.3, "L": 1.0}, id="unknown-channel"),
+        pytest.param({"r": 1.1, "g": 1.2, "b": 1.3}, id="lower-case-channels"),
+        pytest.param({"R": 1.1, "G": 1.2}, id="missing-channel"),
         pytest.param({}, id="empty"),
-        pytest.param({"R": -1.0}, id="negative-channel-gain"),
-        pytest.param({"R": float("inf")}, id="infinite-channel-gain"),
-        pytest.param({"R": "high"}, id="non-numeric-channel-gain"),
+        pytest.param({"R": -1.0, "G": 1.2, "B": 1.3}, id="negative-channel-gain"),
+        pytest.param({"R": float("inf"), "G": 1.2, "B": 1.3}, id="infinite-channel-gain"),
+        pytest.param({"R": float("nan"), "G": 1.2, "B": 1.3}, id="nan-channel-gain"),
+        pytest.param({"R": "high", "G": 1.2, "B": 1.3}, id="non-numeric-channel-gain"),
         pytest.param(float("inf"), id="infinite-scalar"),
+        pytest.param(float("nan"), id="nan-scalar"),
         pytest.param(-1.0, id="negative-scalar"),
         pytest.param("high", id="non-numeric-scalar"),
     ],
 )
 def test_egain_rejects_bad_values(value):
-    # Neither form of egain admits an unknown channel, an empty dict, a
-    # negative gain or a non-numeric one. An infinite gain is rejected too:
-    # JSON has no infinity, so pydantic would write it as null, which does
-    # not read back.
+    # The per-channel form needs exactly the three channels R, G and B, in
+    # that spelling, and neither form admits a negative gain or a non-numeric
+    # one. An infinite or NaN gain is rejected too: JSON has neither, so
+    # pydantic would write it as null, which does not read back.
     data = StarList.from_examples().model_dump()
     data["egain"] = value
 
@@ -183,20 +186,22 @@ def test_egain_rejects_bad_values(value):
         StarList.model_validate(data)
 
 
-def test_egain_schema_offers_both_forms_and_restricts_the_keys():
-    # The generated schema says egain is a non-negative number or a non-empty
-    # object of non-negative numbers whose keys are the Bayer channel names.
+def test_egain_schema_offers_both_forms_and_requires_every_channel():
+    # The generated schema says egain is a non-negative number or an object
+    # with exactly the three channel keys, each a non-negative number.
     schema = StarList.model_json_schema()
     number, per_channel = schema["properties"]["egain"]["anyOf"]
+    gains = schema["$defs"]["BayerGains"]
 
     assert number == {"type": "number", "minimum": 0}
-    assert per_channel == {
-        "type": "object",
-        "minProperties": 1,
-        "additionalProperties": {"type": "number", "minimum": 0},
-        "propertyNames": {"$ref": "#/$defs/BayerChannels"},
-    }
-    assert schema["$defs"]["BayerChannels"]["enum"] == ["R", "G", "B"]
+    assert per_channel == {"$ref": "#/$defs/BayerGains"}
+    assert gains["required"] == ["R", "G", "B"]
+    assert gains["additionalProperties"] is False
+    assert all(
+        gains["properties"][channel]["type"] == "number"
+        and gains["properties"][channel]["minimum"] == 0
+        for channel in ("R", "G", "B")
+    )
 
 
 def test_egain_markdown_row_names_both_forms():
@@ -206,7 +211,22 @@ def test_egain_markdown_row_names_both_forms():
         line for line in StarList.markdown_table().splitlines() if "| egain |" in line
     )
 
-    assert row.split(" | ")[2] == r"float \| dict[BayerChannels, float]"
+    assert row.split(" | ")[2] == r"float \| BayerGains"
+
+
+def test_markdown_document_has_a_bayer_gains_section():
+    # The human-readable schema documents the per-channel form of egain in
+    # its own section, between the star list and the star item, with one row
+    # per channel, so a reader can find what the BayerGains type holds.
+    headings = [line for line in _generate_markdown().splitlines() if line.startswith("# ")]
+    section = _generate_markdown().split("# Bayer Gains")[1].split("# Star Item")[0]
+
+    assert headings == ["# Star List Set", "# Star List", "# Bayer Gains", "# Star Item"]
+    assert [line.split(" | ")[1] for line in section.splitlines() if line.startswith("| ")][2:] == [
+        "R",
+        "G",
+        "B",
+    ]
 
 
 def test_photometry_software_is_required_in_a_current_file():
@@ -652,7 +672,7 @@ def test_table_round_trip_keeps_egain_per_channel():
     table = star_list.to_table()
 
     assert table.meta["egain"] == {"R": 1.1, "G": 1.2, "B": 1.3}
-    assert all(type(key) is str for key in table.meta["egain"])
+    assert type(table.meta["egain"]) is dict
     assert StarList.from_table(table) == star_list
 
 

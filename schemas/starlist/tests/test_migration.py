@@ -890,7 +890,7 @@ def test_current_file_with_egain_per_channel_round_trips():
 
     result = StarListSet.model_validate_json(json.dumps(data))
 
-    assert result.star_lists[0].egain == {"R": 1.1, "G": 1.2, "B": 1.3}
+    assert result.star_lists[0].egain.model_dump() == {"R": 1.1, "G": 1.2, "B": 1.3}
     assert result.model_dump(mode="json") == data
 
 
