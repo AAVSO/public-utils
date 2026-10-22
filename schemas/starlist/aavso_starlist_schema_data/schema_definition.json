@@ -104,6 +104,24 @@
           "title": "Peak Counts",
           "type": "number",
           "unit": "adu"
+        },
+        "fwhm": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Full width at half maximum of this star's image, as opposed to the typical value for the whole image in the star list's `fwhm`. None if not available.",
+          "examples": [
+            3.4
+          ],
+          "title": "Star FWHM",
+          "unit": "pixel"
         }
       },
       "required": [
@@ -296,12 +314,12 @@
           "unit": "e-/adu"
         },
         "fwhm": {
-          "description": "Typical full width at half maximum of the star image",
+          "description": "Typical full width at half maximum of the stars in this image",
           "examples": [
             3.5
           ],
           "exclusiveMinimum": 0,
-          "title": "FWHM",
+          "title": "Typical FWHM",
           "type": "number",
           "unit": "pixel"
         },
@@ -392,9 +410,9 @@
     "schema_version": {
       "description": "The version of this schema that the file was written against, assigned by AAVSO",
       "examples": [
-        "0.3.0"
+        "0.3.1"
       ],
-      "pattern": "^(0\\.3\\.0)$",
+      "pattern": "^(0\\.3\\.0|0\\.3\\.1)$",
       "title": "Starlist Schema Version",
       "type": "string",
       "unit": "none"
@@ -418,5 +436,5 @@
   ],
   "title": "StarListSet",
   "type": "object",
-  "version": "0.3.0"
+  "version": "0.3.1"
 }

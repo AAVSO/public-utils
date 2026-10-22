@@ -17,6 +17,7 @@ from aavso_starlist_schema import (
     MigrationResultError,
     NewerSchemaVersionError,
     SchemaMigrationWarning,
+    StarItem,
     StarList,
     StarListSet,
     UnsupportedSchemaVersionError,
@@ -792,6 +793,57 @@ def test_legacy_file_is_upgraded_with_absolute_focus_none():
 
     assert result.schema_version == SCHEMA_VERSION
     assert result.star_lists[0].absolute_focus is None
+
+
+def test_file_from_before_star_item_fwhm_reads_it_as_none():
+    # The 0.3.0 sample file predates the per-star fwhm (added in 0.3.1); it is
+    # in the current generation, so it is read without a warning (pytest
+    # treats an unexpected SchemaMigrationWarning as an error), restamped at
+    # the current version, with fwhm None on every star item.
+    _, written_at_0_3_0 = _before_after_pair("0.2")
+    assert written_at_0_3_0["schema_version"] == "0.3.0"
+    star_items = [
+        item for star_list in written_at_0_3_0["star_lists"] for item in star_list["staritems"]
+    ]
+    assert star_items
+    assert all("fwhm" not in item for item in star_items)
+
+    result = StarListSet.model_validate(written_at_0_3_0)
+
+    assert result.schema_version == SCHEMA_VERSION
+    assert [item.fwhm for star_list in result.star_lists for item in star_list.staritems] == [
+        None
+    ] * len(star_items)
+
+
+def test_legacy_file_is_upgraded_with_star_item_fwhm_none():
+    # A legacy file is migrated through both generations and restamped at
+    # the current version, and every star item reads the per-star fwhm added
+    # since as None.
+    before, _ = _before_after_pair("legacy")
+
+    with pytest.warns(SchemaMigrationWarning):
+        result = StarListSet.model_validate(before)
+
+    assert result.schema_version == SCHEMA_VERSION
+    star_items = [item for star_list in result.star_lists for item in star_list.staritems]
+    assert star_items
+    assert all(item.fwhm is None for item in star_items)
+
+
+def test_current_file_with_star_item_fwhm_round_trips():
+    # A file at the current version whose star items set fwhm is read without
+    # a warning (pytest treats an unexpected SchemaMigrationWarning as an
+    # error), keeps the values, and is written back unchanged.
+    star_list = StarList.from_examples()
+    star_list.staritems = [StarItem.from_examples()]
+    data = _example_data(star_lists=[star_list.model_dump(mode="json")])
+    assert data["star_lists"][0]["staritems"][0]["fwhm"] == 3.4
+
+    result = StarListSet.model_validate_json(json.dumps(data))
+
+    assert result.star_lists[0].staritems[0].fwhm == 3.4
+    assert result.model_dump(mode="json") == data
 
 
 def _written_at_0_2(version):
