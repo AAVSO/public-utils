@@ -543,8 +543,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             optional `StarItem` fields, such as ``fwhm``, may be omitted. When
             such a column is present it is read and validated like any other:
             a masked or NaN entry reads as None, and every other entry must
-            be a valid value for the field (for ``fwhm``, a finite number
-            greater than 0).
+            be a valid value for the field.
 
         metadata : dict, optional
             Additional metadata to use in the StarList object.
