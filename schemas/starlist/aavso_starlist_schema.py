@@ -24,6 +24,7 @@ from pydantic_core import PydanticSerializationError, to_jsonable_python
 
 import _aavso_starlist_legacy  # frozen models of the legacy generation
 import _aavso_starlist_v0_2  # frozen models of the 0.2 generation
+import _aavso_starlist_v0_3  # frozen models of the 0.3 generation
 
 try:
     from _aavso_version import __version__  # top-level sibling, written by hatch-vcs
@@ -34,13 +35,13 @@ except ImportError:  # pragma: no cover - source tree without the generated file
 # deliberately independent of the package version above: bump it whenever the
 # generated schema under aavso_starlist_schema_data/ changes. The archive test
 # fails if the generated schema changes without bumping this constant.
-SCHEMA_VERSION = "0.3.1"
+SCHEMA_VERSION = "0.4.0"
 
 # Every released schema version from 0.2.0 on, oldest first; add each new
 # SCHEMA_VERSION here. Listed in the code, rather than read from the archive
 # folders, so the versions this reader accepts never depend on the filesystem.
 # The archive test fails if this differs from the archived versions.
-_RELEASED_VERSIONS = ("0.2.0", "0.2.1", "0.3.0", "0.3.1")
+_RELEASED_VERSIONS = ("0.2.0", "0.2.1", "0.3.0", "0.3.1", "0.4.0")
 
 __all__ = [
     "AAVSOFilters",
@@ -475,6 +476,25 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             examples=[1.2]
         )
     ]
+    bias: Annotated[
+        float | None,
+        Field(
+            ge=0,
+            allow_inf_nan=False,
+            title="Bias Level",
+            description=(
+                "Bias (offset) level of this frame in adu: the constant "
+                "pedestal the camera adds to every pixel, as a zero-second "
+                "exposure with no light would read, as present in the pixel "
+                "values the counts in this star list were measured from. "
+                "Required: a new file should give a number. `null` means the "
+                "bias was not reported; files upgraded from a schema version "
+                "before 0.4.0 carry `null`."
+            ),
+            json_schema_extra=dict(unit="adu"),
+            examples=[1000.0]
+        )
+    ]
     fwhm: Annotated[
         float,
         Field(
@@ -615,7 +635,8 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             star item has None is a float `astropy.table.MaskedColumn`, masked
             where the value is None, so that `from_table` reads it back as
             None. The remaining information from the starlist is stored in
-            the table metadata.
+            the table metadata as plain JSON types (an enum member becomes
+            its string value), so the table can be written to a file.
 
         """
         table_dict = {col: [] for col in StarItem.model_fields}
@@ -638,7 +659,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
                     mask=[value is None for value in values],
                 )
 
-        table_meta = self.model_dump()
+        table_meta = self.model_dump(mode="json")
         table_meta.pop("staritems")
 
         return Table(table_dict, meta=table_meta)
@@ -868,6 +889,61 @@ def _migrate_0_2_to_0_3(data):
     return data
 
 
+def _with_bias(star_list):
+    """
+    Give one star list from a 0.3 file the 0.4.0 ``bias`` field.
+
+    Parameters
+    ----------
+    star_list : object
+        One entry of ``star_lists``. Reached through the model it is always a
+        dict of plain data (see `_Migration`); from `upgrade` called directly
+        it may also be another mapping or a model instance, which are
+        converted to a dict, or anything else.
+
+    Returns
+    -------
+    dict or object
+        A dict of the star list's fields with ``bias`` set to ``None``, the
+        value that means the bias was not reported. The 0.3 schema does not
+        define the key, so a value already there was never validated and is
+        replaced: a file valid for 0.3 is then always valid after migration.
+        Anything that is neither a mapping nor a model is returned unchanged,
+        for validation to reject.
+    """
+    if isinstance(star_list, BaseModel):
+        star_list = star_list.model_dump()
+    if not isinstance(star_list, Mapping):
+        return star_list
+    return {**star_list, "bias": None}
+
+
+def _migrate_0_3_to_0_4(data):
+    """
+    Migrate a 0.3 starlist set to schema version 0.4.0.
+
+    Parameters
+    ----------
+    data : dict
+        Raw starlist-set data from a 0.3 file. `upgrade` passes a copy, so it
+        is modified in place.
+
+    Returns
+    -------
+    dict
+        ``data`` with ``bias``, which became required in 0.4.0, set to
+        ``None`` on every star list, and ``star_lists`` a list. A tuple of
+        star lists, which only `upgrade` called directly can pass, is handled
+        too. Unlike ``photometry_software``, which has ``"unknown"`` in its
+        domain, no number honestly stands in for a bias the file did not
+        record, so ``None`` is the value that says it was not reported.
+    """
+    star_lists = data.get("star_lists")
+    if isinstance(star_lists, (list, tuple)):
+        data["star_lists"] = [_with_bias(star_list) for star_list in star_lists]
+    return data
+
+
 # Keyed by the generation a file is in; the value takes it to the next generation.
 # Each breaking change adds an entry here, keyed by the generation being left,
 # with a frozen copy of that generation's models in its own _aavso_starlist_*.py.
@@ -883,6 +959,12 @@ _MIGRATIONS = {
         "0.3.0",
         _migrate_0_2_to_0_3,
         'photometry_software became required; every star list gets ["unknown"]',
+    ),
+    "0.3": _Migration(
+        _aavso_starlist_v0_3.StarListSet,
+        "0.4.0",
+        _migrate_0_3_to_0_4,
+        "bias became required; every star list gets null, meaning not reported",
     ),
 }
 
