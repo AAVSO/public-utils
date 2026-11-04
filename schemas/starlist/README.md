@@ -194,10 +194,13 @@ Use the standard pydantic methods. `StarListSet.model_validate_json(text)`,
 file from an older generation goes through three steps:
 
 1. It is validated against the frozen model of its own generation: is this
-   file valid for the schema version it states? Data built in Python (tuples,
-   other mappings, model instances, enum members, generators) is first
-   converted, once, to plain JSON data.
-2. It is upgraded to the current schema version with `upgrade()`, as a plain
+   file valid for the schema version it states? The data is validated as
+   given, apart from one-shot iterators such as generators and list-like
+   containers (deques, arrays and the like), which are first read, once,
+   into lists.
+2. It is converted to plain JSON data (tuples become lists, other mappings
+   dicts, model instances dicts of their fields, enum members their values)
+   and upgraded to the current schema version with `upgrade()`, as a plain
    dict, one generation at a time. Nothing is validated between migrations.
 3. The result is validated against the current model.
 
@@ -239,16 +242,17 @@ original version, the new version and what changed. The upgraded object is
 derived data; the submitted file remains the record.
 
 A file that is not valid for the schema version it states fails step 1 with the
-usual pydantic `ValidationError`; that is a problem with the file. So does a
-file a migration refuses (step 2) because the new generation cannot hold it.
-The 0.3 to 0.4 migration drops keys the 0.3 schema did not define (the 0.3
-reader ignored them) and turns a `stack` of 0 or less into `null`, but a float
-that is infinite or NaN, a string longer than 0.4.0 allows, or a star list of
-more than 100000 star items has no 0.4 form: the migration raises `ValueError`
-naming the field, and `upgrade()` called directly raises that `ValueError`
-itself. The field is named in the error message, not in pydantic's `loc`
-(which is empty), and only the first such problem is reported. Either way it
-is not a `MigrationResultError`, since the package is not at fault.
+usual pydantic `ValidationError`; that is a problem with the file. A file a
+migration refuses in step 2, because the new generation cannot hold it, raises
+the same `ValidationError`. The 0.3 to 0.4 migration drops keys the 0.3
+schema did not define (the 0.3 reader ignored them) and turns a `stack` of 0
+or less into `null`, but a float that is infinite or NaN, a string longer than
+0.4.0 allows, or a star list of more than 100000 star items has no 0.4 form:
+the migration raises `ValueError` naming the field, and `upgrade()` called
+directly raises that `ValueError` itself. The field is named in the error
+message, not in pydantic's `loc` (which is empty), and only the first such
+problem is reported. Either way it is not a `MigrationResultError`, since the
+package is not at fault.
 
 Three errors are specific to versioning. All derive from `SchemaVersionError`,
 which is deliberately not a `ValueError`, so pydantic does not wrap them in a

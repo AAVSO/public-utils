@@ -4,8 +4,8 @@ from typing import Annotated, Optional
 
 import numpy as np
 import pytest
+from _helpers import float_fields
 from astropy.table import MaskedColumn, Table
-from conftest import float_fields
 from pydantic import ValidationError
 
 from aavso_starlist_schema import (
@@ -35,7 +35,7 @@ STAR_LIST_FLOAT_FIELDS = [
 
 # The maximum length, in characters, of each capped string field of a star list.
 STRING_LIMITS = {
-    "observer": 7, "block_filter": 31, "tel_manufac": 63, "tel_model": 63,
+    "obs_time": 63, "observer": 7, "block_filter": 31, "tel_manufac": 63, "tel_model": 63,
     "tel_firmware": 31, "refframe": 15,
 }
 
@@ -234,6 +234,22 @@ def test_misspelled_optional_field_is_reported_not_dropped():
         StarList.model_validate(data)
 
 
+def test_misspelled_required_field_is_reported_with_the_missing_field():
+    # A misspelled required field is reported twice: the correct name as
+    # missing and the misspelling as an unknown key, so the reader sees both
+    # halves of the mistake.
+    data = _one_star_set_data()
+    data["star_lists"][0]["observr"] = data["star_lists"][0].pop("observer")
+
+    with pytest.raises(ValidationError) as excinfo:
+        StarListSet.model_validate(data)
+
+    assert {(error["type"], error["loc"]) for error in excinfo.value.errors()} == {
+        ("missing", ("star_lists", 0, "observer")),
+        ("extra_forbidden", ("star_lists", 0, "observr")),
+    }
+
+
 def test_schema_forbids_additional_properties():
     # The generated schema forbids keys it does not define on the star list
     # set, each star list and each star item.
@@ -247,14 +263,16 @@ def test_schema_forbids_additional_properties():
 @pytest.mark.parametrize("value", [0, -1])
 def test_stack_rejects_values_below_one(value):
     # A stack counts the images in the image, so it is at least 1; 0 and
-    # negative counts are rejected, naming the field.
+    # negative counts are rejected, and the error is located at the field.
     data = StarList.from_examples().model_dump()
     data["stack"] = value
 
     with pytest.raises(ValidationError, match="greater than or equal to 1") as excinfo:
         StarList.model_validate(data)
 
-    assert "stack" in str(excinfo.value)
+    error = excinfo.value.errors()[0]
+    assert error["type"] == "greater_than_equal"
+    assert error["loc"] == ("stack",)
 
 
 @pytest.mark.parametrize("value", [1, None], ids=["one", "none"])

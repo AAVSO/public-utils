@@ -11,7 +11,7 @@ import json
 import math
 import re
 import warnings
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from enum import StrEnum
 from pathlib import Path
 from types import UnionType
@@ -313,6 +313,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     obs_time: Annotated[
         str,
         Field(
+            max_length=63,
             title="Observation Start Time",
             json_schema_extra=dict(
                 unit=None,
@@ -818,9 +819,11 @@ class _Migration(NamedTuple):
 
     - From ``StarListSet.model_validate_json``, ``model_validate`` or the
       constructor, plain JSON data: dicts, lists, strings, numbers, booleans
-      and ``None``. The input is first validated, as given, against the
-      frozen ``model``, then converted by `_to_plain`: tuples become lists,
-      other mappings dicts, instances of the frozen generation's own
+      and ``None``. The input is first validated against the frozen
+      ``model`` as given, apart from one-shot iterators and list-like
+      containers (deques, arrays and the like), which are read into lists;
+      then it is converted by `_to_plain`: list-like containers become
+      lists, other mappings dicts, instances of the frozen generation's own
       ``StarList`` or ``StarItem`` dicts of their fields, enum members their
       values. Keys the frozen model ignores are kept.
     - From `upgrade` called directly, anything at all: nothing has been
@@ -926,9 +929,9 @@ _0_3_STAR_LIST_FLOATS = (
 _0_3_STAR_ITEM_FLOATS = (
     "x", "y", "ra", "dec", "tot_count", "count_err", "bkgd_count", "peak_count", "fwhm",
 )
-_0_4_CANNOT_UPGRADE = "schema version 0.4.0 {rule}, so this file cannot be upgraded from 0.3"
+_0_4_CANNOT_UPGRADE = "schema version 0.4.0 {rule}, so this file cannot be upgraded to it"
 _0_4_MAX_STRING_LENGTHS = {
-    "observer": 7, "block_filter": 31, "tel_manufac": 63, "tel_model": 63,
+    "obs_time": 63, "observer": 7, "block_filter": 31, "tel_manufac": 63, "tel_model": 63,
     "tel_firmware": 31, "refframe": 15,
 }
 _0_4_MAX_PHOTOMETRY_SOFTWARE_ENTRY = 63
@@ -1357,7 +1360,8 @@ def _to_plain(value):
     -------
     object
         A new structure of dicts, lists, strings, numbers, booleans and
-        ``None``: every mapping becomes a dict, a tuple a list, a model
+        ``None``: every mapping becomes a dict, a tuple, deque, array or
+        other list-like container (see `_is_sequence_like`) a list, a model
         instance a dict of its fields, an enum member its value and a
         datetime an ISO 8601 string. A value of a type pydantic cannot
         serialize, possible only under a key the models ignore, is passed on
@@ -1365,12 +1369,60 @@ def _to_plain(value):
     """
     if isinstance(value, Mapping):
         return {key: _to_plain(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
+    if _is_sequence_like(value):
         return [_to_plain(item) for item in value]
     try:
         return to_jsonable_python(value)
     except PydanticSerializationError:
         return value
+
+
+def _is_sequence_like(value):
+    """
+    Tell whether a pydantic list field would read a value as a list.
+
+    Parameters
+    ----------
+    value : object
+        Raw starlist-set data, or any value inside it.
+
+    Returns
+    -------
+    bool
+        True for an iterable that is not a string, bytes, mapping, model
+        instance or zero-dimensional array: a list, tuple, deque, set,
+        generator or array of one or more dimensions, for example.
+    """
+    if isinstance(value, (str, bytes, bytearray, Mapping, BaseModel)):
+        return False
+    if getattr(value, "ndim", 1) == 0:
+        return False
+    return isinstance(value, Iterable)
+
+
+def _materialize(value):
+    """
+    Read every one-shot iterator in a value into a list, changing nothing else.
+
+    Parameters
+    ----------
+    value : object
+        Raw starlist-set data, or any value inside it.
+
+    Returns
+    -------
+    object
+        A copy of ``value`` in which every mapping is a dict and every
+        list-like container (see `_is_sequence_like`) a list, walked all the
+        way down so a generator nested anywhere is found; every other value,
+        a datetime or model instance for example, is kept as given, so
+        validating the result checks the data as it was written.
+    """
+    if isinstance(value, Mapping):
+        return {key: _materialize(item) for key, item in value.items()}
+    if _is_sequence_like(value):
+        return [_materialize(item) for item in value]
+    return value
 
 
 def upgrade(data):
@@ -1489,17 +1541,19 @@ class StarListSet(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin
     @classmethod
     def _read_older_versions(cls, data, handler):
         """
-        Validate data from an older schema version as written, then upgrade it.
+        Validate data from an older schema version as given, then upgrade it.
 
         This runs for ``model_validate``, ``model_validate_json`` and the
         constructor, so every way of creating a `StarListSet` reads old files.
         Data from an older generation goes through three steps:
 
-        1. Convert it to plain JSON data with `_to_plain`, once, so a one-shot
-           iterator such as a generator is read only once, and validate it
+        1. Read one-shot iterators and list-like containers (deques, arrays
+           and the like) into lists with `_materialize`, once, so a generator
+           is read only once, and validate the data, otherwise as given,
            against the frozen model of its own generation.
-        2. Upgrade the plain data, keys the frozen model ignores included, to
-           the current version with `upgrade`.
+        2. Convert the data to plain JSON data with `_to_plain` and upgrade
+           it, keys the frozen model ignores included, to the current
+           version with `upgrade`.
         3. Validate the result against this model.
 
         Data already in the current generation only gets step 3, stamped with
@@ -1548,13 +1602,14 @@ class StarListSet(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin
             # the model always states the version it conforms to.
             return handler({**data, "schema_version": SCHEMA_VERSION})
 
-        # Convert the raw input once, before both steps: a one-shot iterator
-        # read by the frozen model would reach the migrations empty. Upgrade
-        # the plain input, not the validated model, so keys the frozen model
-        # ignores still reach the migrations.
-        data = _to_plain(data)
+        # Read one-shot iterators once, before both steps: a generator read by
+        # the frozen model would reach the migrations empty. Validate the data
+        # otherwise as given, so a datetime in a string field is still refused.
+        # Upgrade the plain input, not the validated model, so keys the frozen
+        # model ignores still reach the migrations.
+        data = _materialize(data)
         _MIGRATIONS[generation].model.model_validate(data)
-        upgraded = upgrade(data)
+        upgraded = upgrade(_to_plain(data))
         try:
             return handler(upgraded)
         except ValidationError as error:

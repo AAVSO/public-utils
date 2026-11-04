@@ -148,6 +148,7 @@
             "2021-06-15T03:45:00"
           ],
           "format": "date-time",
+          "maxLength": 63,
           "scale": "UTC",
           "title": "Observation Start Time",
           "type": "string",

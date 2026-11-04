@@ -83,6 +83,8 @@ archive.help = "Copy the reference schema files to their v<SCHEMA_VERSION>/ arch
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Lets the test modules import tests/_helpers.py under every import mode.
+pythonpath = ["tests"]
 # A test that reads an older file must expect the migration warning with
 # pytest.warns; anywhere else it means the test read data it did not mean to.
 filterwarnings = ["error::aavso_starlist_schema.SchemaMigrationWarning"]
