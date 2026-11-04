@@ -23,6 +23,32 @@ from aavso_starlist_schema import (
     main,
 )
 
+# The float fields of each model, as the next tests check them; the first test
+# below keeps these lists complete.
+STAR_ITEM_FLOAT_FIELDS = [
+    "x", "y", "ra", "dec", "tot_count", "count_err", "bkgd_count", "peak_count", "fwhm",
+]
+STAR_LIST_FLOAT_FIELDS = [
+    "site_lat", "site_lon", "site_elev", "exposure", "egain", "bias", "fwhm", "absolute_focus",
+]
+
+
+def _one_star_set_data():
+    """
+    Build raw data for a current star list set of one star list of one star item.
+
+    Returns
+    -------
+    dict
+        The example `StarListSet`, with one example `StarList` holding one
+        example `StarItem`, dumped to JSON-compatible types.
+    """
+    star_list = StarList.from_examples()
+    star_list.staritems = [StarItem.from_examples()]
+    data = StarListSet.from_examples().model_dump(mode="json")
+    data["star_lists"] = [star_list.model_dump(mode="json")]
+    return data
+
 
 @pytest.mark.parametrize("klass", [StarItem, StarList, StarListSet])
 def test_schema_has_all_require_properties(klass):
@@ -106,16 +132,139 @@ def test_star_item_fwhm_must_be_positive(value):
         StarItem.model_validate(data)
 
 
-@pytest.mark.parametrize("value", [float("inf"), float("nan")])
-def test_star_item_fwhm_rejects_infinity_and_nan(value):
-    # JSON has no infinity or NaN, so pydantic would write either as null,
-    # which is a valid fwhm meaning "not available"; the value would be lost
-    # with no error. Both are rejected instead.
-    data = StarItem.from_examples().model_dump()
-    data["fwhm"] = value
+@pytest.mark.parametrize(
+    "klass, float_fields",
+    [
+        pytest.param(StarItem, STAR_ITEM_FLOAT_FIELDS, id="StarItem"),
+        pytest.param(StarList, STAR_LIST_FLOAT_FIELDS, id="StarList"),
+    ],
+)
+def test_float_fields_are_all_listed(klass, float_fields):
+    # The lists of float fields the next tests check are every field whose
+    # type is float, optional or not, so a new float field cannot escape them.
+    found = [
+        name
+        for name, field in klass.model_fields.items()
+        if _type_name(field.annotation) in ("float", "float | None")
+    ]
+
+    assert found == float_fields
+
+
+@pytest.mark.parametrize(
+    "value", [float("inf"), float("-inf"), float("nan")], ids=["inf", "-inf", "nan"]
+)
+@pytest.mark.parametrize(
+    "klass, field_name",
+    [(StarItem, name) for name in STAR_ITEM_FLOAT_FIELDS]
+    + [(StarList, name) for name in STAR_LIST_FLOAT_FIELDS],
+)
+def test_float_field_rejects_infinity_and_nan(klass, field_name, value):
+    # JSON has no infinity or NaN, so pydantic would write either as null (a
+    # valid value for an optional field, meaning "not available", and an
+    # invalid file otherwise); every float field rejects them, naming itself.
+    data = klass.from_examples().model_dump()
+    data[field_name] = value
+
+    with pytest.raises(ValidationError, match="finite number") as excinfo:
+        klass.model_validate(data)
+
+    assert field_name in str(excinfo.value)
+
+
+@pytest.mark.parametrize("value", [float("inf"), float("nan")], ids=["inf", "nan"])
+def test_json_text_with_infinity_or_nan_token_is_rejected(value):
+    # JSON text with the non-standard Infinity or NaN tokens, which Python's
+    # json module writes, is rejected in the two float fields that have no
+    # other constraint, so nothing but the finiteness check stops them.
+    data = _one_star_set_data()
+    data["star_lists"][0]["site_elev"] = value
+    data["star_lists"][0]["staritems"][0]["bkgd_count"] = value
+    text = json.dumps(data)
 
     with pytest.raises(ValidationError, match="finite number"):
-        StarItem.model_validate(data)
+        StarListSet.model_validate_json(text)
+
+
+@pytest.mark.parametrize(
+    "level, loc",
+    [
+        ("set", ("bogus",)),
+        ("star_list", ("star_lists", 0, "bogus")),
+        ("star_item", ("star_lists", 0, "staritems", 0, "bogus")),
+    ],
+)
+def test_unknown_key_is_rejected_at_each_level(level, loc):
+    # A key the schema does not define is rejected at every level of the
+    # file, and the error says where it is.
+    data = _one_star_set_data()
+    target = {
+        "set": data,
+        "star_list": data["star_lists"][0],
+        "star_item": data["star_lists"][0]["staritems"][0],
+    }[level]
+    target["bogus"] = 1
+
+    with pytest.raises(ValidationError) as excinfo:
+        StarListSet.model_validate(data)
+
+    error = excinfo.value.errors()[0]
+    assert error["type"] == "extra_forbidden"
+    assert error["loc"] == loc
+    assert "bogus" in str(excinfo.value)
+    assert "Extra inputs are not permitted" in str(excinfo.value)
+
+
+def test_misspelled_optional_field_is_reported_not_dropped():
+    # A misspelled optional field used to be ignored, so the field silently
+    # read as None; now the misspelling is reported.
+    data = StarList.from_examples().model_dump()
+    data["absolute_focs"] = data.pop("absolute_focus")
+
+    with pytest.raises(ValidationError, match="absolute_focs"):
+        StarList.model_validate(data)
+
+
+def test_schema_forbids_additional_properties():
+    # The generated schema forbids keys it does not define on the star list
+    # set, each star list and each star item.
+    schema = json.loads(generate_star_list_set_schema())
+
+    assert schema["additionalProperties"] is False
+    assert schema["$defs"]["StarList"]["additionalProperties"] is False
+    assert schema["$defs"]["StarItem"]["additionalProperties"] is False
+
+
+@pytest.mark.parametrize("value", [0, -1])
+def test_stack_rejects_values_below_one(value):
+    # A stack counts the images in the image, so it is at least 1; 0 and
+    # negative counts are rejected, naming the field.
+    data = StarList.from_examples().model_dump()
+    data["stack"] = value
+
+    with pytest.raises(ValidationError, match="greater than or equal to 1") as excinfo:
+        StarList.model_validate(data)
+
+    assert "stack" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("value", [1, None], ids=["one", "none"])
+def test_stack_accepts_one_or_none(value):
+    # 1, the boundary, is accepted and kept; so is None, "not applicable".
+    data = StarList.from_examples().model_dump()
+    data["stack"] = value
+
+    assert StarList.model_validate(data).stack == value
+
+
+def test_stack_schema_has_minimum_one():
+    # The generated schema says stack is an integer of at least 1, or null.
+    schema = StarList.model_json_schema()
+
+    assert schema["properties"]["stack"]["anyOf"] == [
+        {"type": "integer", "minimum": 1},
+        {"type": "null"},
+    ]
 
 
 def test_bias_is_optional():
@@ -614,6 +763,34 @@ def test_from_table_still_requires_the_required_star_item_columns():
     del table["dec"]
 
     with pytest.raises(ValueError, match="Missing columns in table: dec, peak_count$"):
+        StarList.from_table(table)
+
+
+def test_from_table_ignores_unknown_table_metadata_keys():
+    # A table's metadata may carry anything, such as FITS header cards;
+    # from_table uses only the StarList fields from it and ignores the rest.
+    expected = StarList.from_table(_single_star_table())
+    table = _single_star_table()
+    table.meta["EXPTIME"] = 30.0
+    table.meta["COMMENT"] = "fits card"
+
+    assert StarList.from_table(table) == expected
+
+
+def test_from_table_rejects_unknown_explicit_metadata_keys():
+    # The metadata argument is the caller's own, so it is not filtered: a
+    # misspelled key there is reported rather than ignored.
+    with pytest.raises(ValidationError, match="observr"):
+        StarList.from_table(_single_star_table(), metadata={"observr": "MMU"})
+
+
+def test_from_table_rejects_nan_in_a_required_star_item_column():
+    # Only an optional column reads NaN as None; in a required column NaN is
+    # a value, and every float field rejects it.
+    table = _single_star_table()
+    table["bkgd_count"] = [np.nan]
+
+    with pytest.raises(ValidationError, match="finite number"):
         StarList.from_table(table)
 
 

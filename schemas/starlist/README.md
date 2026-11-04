@@ -89,16 +89,16 @@ legacy file and upgraded with a warning, see below). The generated
 
 A *generation* is a set of versions that need no migration between them: a
 reader reads any released version of its own generation up to its own version,
-and refuses newer ones. The generations are `0.2` for 0.2.z, `0.3` for 0.3.z
-(the current one), and so on, then `1` for 1.y.z, and `legacy` for everything
-before 0.2.0 (files with no `schema_version`,
+and refuses newer ones. The generations are `0.2` for 0.2.z, `0.3` for 0.3.z,
+`0.4` for 0.4.z (the current one), and so on, then `1` for 1.y.z, and
+`legacy` for everything before 0.2.0 (files with no `schema_version`,
 package-version strings such as `0.0.1.dev451+gde1568f`, or a version below
 0.2.0 such as `0.0.1`).
 Crossing a generation boundary requires a migration.
 
 Every generation that has been left behind keeps a *frozen* copy of its models
 in its own module (`_aavso_starlist_legacy.py` for the legacy generation,
-`_aavso_starlist_v0_2.py` for 0.2), so
+`_aavso_starlist_v0_2.py` for 0.2, `_aavso_starlist_v0_3.py` for 0.3), so
 that an old file can still be validated against the schema it was written for.
 The live models in `aavso_starlist_schema.py` are always the current generation.
 
@@ -149,7 +149,9 @@ generates, archives and runs the tests.
    `aavso_starlist_schema.py` together with the frozen `StarListSet`.
    `_migrate_legacy_to_0_2` is the template for a no-op migration, when no
    data has to change, and `_migrate_0_2_to_0_3` for one that fills in a new
-   required field. A migration is never edited once released. It
+   required field. `_migrate_0_3_to_0_4` is the template for one that drops
+   what the new generation forbids and raises `ValueError`, naming the field,
+   for a file it cannot repair. A migration is never edited once released. It
    takes a dict and returns the migrated dict; `upgrade()` stamps the target
    version on the result. It is given a deep copy, so it may modify its
    argument in place. Through `model_validate_json`, `model_validate` and the
@@ -195,6 +197,19 @@ file from an older generation goes through three steps:
 
 A file already in the current generation only gets step 3.
 
+A migration may refuse a file the new generation cannot hold. The 0.3 to 0.4
+migration drops keys the 0.3 schema did not define (the 0.3 reader ignored
+them) and turns a `stack` of 0 or less into `null`, but a float that is
+infinite or NaN has no 0.4 form: the migration raises `ValueError` naming the
+field. Through `StarListSet` that arrives as the usual pydantic
+`ValidationError`; `upgrade()` raises the `ValueError` itself. That is a
+problem with the file, not with the package, so it is not a
+`MigrationResultError`.
+
+From 0.4.0 the models forbid keys they do not define (`additionalProperties:
+false` in the schema), reject infinity and NaN in every float field, and
+require `stack` to be 1 or more or `null`.
+
 ```python
 from pathlib import Path
 
@@ -231,7 +246,8 @@ original version, the new version and what changed. The upgraded object is
 derived data; the submitted file remains the record.
 
 A file that is not valid for the schema version it states fails step 1 with the
-usual pydantic `ValidationError`; that is a problem with the file.
+usual pydantic `ValidationError`; that is a problem with the file. So does a
+file a migration refuses (step 2).
 
 Three errors are specific to versioning. All derive from `SchemaVersionError`,
 which is deliberately not a `ValueError`, so pydantic does not wrap them in a

@@ -8,6 +8,7 @@ point.
 
 import copy
 import json
+import math
 import re
 import warnings
 from collections.abc import Callable, Mapping
@@ -24,6 +25,7 @@ from pydantic_core import PydanticSerializationError, to_jsonable_python
 
 import _aavso_starlist_legacy  # frozen models of the legacy generation
 import _aavso_starlist_v0_2  # frozen models of the 0.2 generation
+import _aavso_starlist_v0_3  # frozen models of the 0.3 generation
 
 try:
     from _aavso_version import __version__  # top-level sibling, written by hatch-vcs
@@ -34,13 +36,13 @@ except ImportError:  # pragma: no cover - source tree without the generated file
 # deliberately independent of the package version above: bump it whenever the
 # generated schema under aavso_starlist_schema_data/ changes. The archive test
 # fails if the generated schema changes without bumping this constant.
-SCHEMA_VERSION = "0.3.2"
+SCHEMA_VERSION = "0.4.0"
 
 # Every released schema version from 0.2.0 on, oldest first; add each new
 # SCHEMA_VERSION here. Listed in the code, rather than read from the archive
 # folders, so the versions this reader accepts never depend on the filesystem.
 # The archive test fails if this differs from the archived versions.
-_RELEASED_VERSIONS = ("0.2.0", "0.2.1", "0.3.0", "0.3.1", "0.3.2")
+_RELEASED_VERSIONS = ("0.2.0", "0.2.1", "0.3.0", "0.3.1", "0.3.2", "0.4.0")
 
 __all__ = [
     "AAVSOFilters",
@@ -197,6 +199,8 @@ class StarItem(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     """
     Definition of individual entries in an AAVSO star list.
     """
+    model_config = ConfigDict(allow_inf_nan=False, extra="forbid")
+
     x: Annotated[
         float,
         Field(
@@ -288,7 +292,6 @@ class StarItem(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
         float | None,
         Field(
             gt=0,
-            allow_inf_nan=False,
             title="Star FWHM",
             description=(
                 "Full width at half maximum of this star's image, as opposed "
@@ -305,6 +308,8 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     """
     Definition of the header section of an AAVSO star list schema.
     """
+    model_config = ConfigDict(allow_inf_nan=False, extra="forbid")
+
     obs_time: Annotated[
         str,
         Field(
@@ -418,10 +423,11 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     stack: Annotated[
         int | None,
         Field(
+            ge=1,
             title="Number of images",
             description=(
-                "Number of images stacked to create this image. "
-                "If not applicable, set to None."
+                "Number of images stacked to create this image, 1 or more. "
+                "None if not applicable."
             ),
             json_schema_extra=dict(unit="none"),
             examples=[3]
@@ -479,7 +485,6 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
         float | None,
         Field(
             ge=0,
-            allow_inf_nan=False,
             title="Bias Level",
             description=(
                 "Bias (offset) level of this frame in adu: the value "
@@ -567,20 +572,27 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             optional `StarItem` fields, such as ``fwhm``, may be omitted. When
             such a column is present it is read and validated like any other:
             a masked or NaN entry reads as None, and every other entry must
-            be a valid value for the field.
+            be a valid value for the field. A NaN in a required column is not
+            a valid value and is rejected. Of ``table.meta`` only the keys
+            that are `StarList` fields are used; other keys, such as FITS
+            header cards, are ignored.
 
         metadata : dict, optional
             Additional metadata to use in the StarList object.
             If not provided, the metadata from the table will be used.
             If both are provided, the metadata from this argument will
             take precedence. Optional fields may be omitted and take their
-            default.
+            default. It is passed through unfiltered, so a key that is not a
+            `StarList` field is rejected by validation.
 
         Raises
         ------
         ValueError
             If the table lacks a required star item column, or the metadata
             lacks a required field.
+        pydantic.ValidationError
+            If a value is not valid for its field, or ``metadata`` holds a key
+            that is not a field.
 
         Returns
         -------
@@ -609,8 +621,11 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             star_items.append(StarItem(**values))
 
         # Construct metadata, with any passed in to the metadata argument
-        # taking precedence over metadata in the table.
-        final_meta = table.meta.copy()
+        # taking precedence over metadata in the table. Only the StarList
+        # fields are taken from the table's metadata, which may carry
+        # anything (FITS header cards, say); the metadata argument is the
+        # caller's own and passes unfiltered, so a misspelled key is reported.
+        final_meta = {key: value for key, value in table.meta.items() if key in cls.model_fields}
         if metadata:
             final_meta.update(metadata)
 
@@ -786,7 +801,10 @@ class _Migration(NamedTuple):
     new dict. It need not set ``schema_version``: `upgrade` stamps the target
     version on the result. The first migration sees the version the file
     states (or none), each later one the target of the step before. Nothing
-    is validated between migrations.
+    is validated between migrations. A migration raises `ValueError`, naming
+    the field, for data the target generation cannot hold; through
+    `StarListSet` pydantic reports that as a ``ValidationError``, so it reads
+    as a problem with the file, which it is.
 
     The argument is always a ``dict``, but what is inside depends on how
     `upgrade` was reached:
@@ -893,6 +911,213 @@ def _migrate_0_2_to_0_3(data):
     return data
 
 
+# What schema version 0.4.0 forbids that 0.3 allowed, as literals: this migration
+# is frozen once released, so it must not read these from the live models.
+_0_3_STAR_LIST_FLOATS = (
+    "site_lat", "site_lon", "site_elev", "exposure", "egain", "bias", "fwhm", "absolute_focus",
+)
+_0_3_STAR_ITEM_FLOATS = (
+    "x", "y", "ra", "dec", "tot_count", "count_err", "bkgd_count", "peak_count", "fwhm",
+)
+_0_4_CANNOT_UPGRADE = "schema version 0.4.0 {rule}, so this file cannot be upgraded from 0.3"
+
+
+def _as_number(value):
+    """
+    Read a value the way the frozen 0.3 models read a number.
+
+    Parameters
+    ----------
+    value : object
+        A value from a 0.3 file, under a key of a numeric field.
+
+    Returns
+    -------
+    float or None
+        ``float(value)`` for an int, a float, a bool or a numeric string,
+        including ``"inf"``, ``"Infinity"`` and ``"nan"``, which the frozen
+        0.3 models accept; None for anything else, or a string that is not a
+        number or overflows.
+    """
+    if isinstance(value, (bool, int, float, str)):
+        try:
+            return float(value)
+        except (ValueError, OverflowError):
+            return None
+    return None
+
+
+def _keep_defined(record, model):
+    """
+    Keep only the keys of a record that a frozen 0.3 model defines.
+
+    Parameters
+    ----------
+    record : object
+        A starlist set, star list or star item. Reached through the model it
+        is always a dict of plain data (see `_Migration`); from `upgrade`
+        called directly it may also be another mapping or a model instance,
+        which are converted to a dict, or anything else.
+    model : type
+        The frozen 0.3 model of ``record``: ``StarListSet``, ``StarList`` or
+        ``StarItem`` of `_aavso_starlist_v0_3`.
+
+    Returns
+    -------
+    dict or object
+        A new dict of the keys of ``record`` that are fields of ``model``, in
+        their original order. The 0.3 models ignored any other key, so
+        dropping it loses nothing a 0.3 file meant. Anything that is neither
+        a mapping nor a model is returned unchanged, for validation to
+        reject.
+    """
+    if isinstance(record, BaseModel):
+        record = record.model_dump()
+    if not isinstance(record, Mapping):
+        return record
+    return {key: value for key, value in record.items() if key in model.model_fields}
+
+
+def _refuse_non_finite(record, float_fields, path):
+    """
+    Refuse a record with an infinite or NaN float, which 0.4.0 cannot hold.
+
+    Parameters
+    ----------
+    record : dict
+        A star list or star item from a 0.3 file.
+    float_fields : tuple of str
+        The names of the float fields of ``record``'s 0.3 model.
+    path : str
+        Where ``record`` is in the file, such as ``star_lists[0]``, for the
+        error message.
+
+    Raises
+    ------
+    ValueError
+        If one of ``float_fields`` holds infinity or NaN, as a number or as a
+        numeric string; the message names ``path`` and the field.
+    """
+    for name in float_fields:
+        if name in record:
+            number = _as_number(record[name])
+            if number is not None and not math.isfinite(number):
+                raise ValueError(
+                    f"{path}.{name} is {record[name]!r}; "
+                    + _0_4_CANNOT_UPGRADE.format(rule="requires a finite number")
+                )
+
+
+def _star_item_0_4(item, path):
+    """
+    Migrate one star item of a 0.3 file to schema version 0.4.0.
+
+    Parameters
+    ----------
+    item : object
+        One entry of a star list's ``staritems``; see `_keep_defined` for
+        what it may be.
+    path : str
+        Where ``item`` is in the file, such as ``star_lists[0].staritems[2]``,
+        for the error message.
+
+    Returns
+    -------
+    dict or object
+        ``item`` as a dict with only the keys the 0.3 ``StarItem`` defines,
+        or ``item`` unchanged if it is neither a mapping nor a model.
+
+    Raises
+    ------
+    ValueError
+        If a float field of ``item`` holds infinity or NaN.
+    """
+    item = _keep_defined(item, _aavso_starlist_v0_3.StarItem)
+    if isinstance(item, dict):
+        _refuse_non_finite(item, _0_3_STAR_ITEM_FLOATS, path)
+    return item
+
+
+def _star_list_0_4(star_list, path):
+    """
+    Migrate one star list of a 0.3 file to schema version 0.4.0.
+
+    Parameters
+    ----------
+    star_list : object
+        One entry of ``star_lists``; see `_keep_defined` for what it may be.
+    path : str
+        Where ``star_list`` is in the file, such as ``star_lists[0]``, for the
+        error message.
+
+    Returns
+    -------
+    dict or object
+        ``star_list`` as a dict with only the keys the 0.3 ``StarList``
+        defines, a ``stack`` below 1 set to None, and each of its star items
+        migrated by `_star_item_0_4` (``staritems`` becomes a list); or
+        ``star_list`` unchanged if it is neither a mapping nor a model.
+
+    Raises
+    ------
+    ValueError
+        If a float field of the star list or of one of its star items holds
+        infinity or NaN.
+    """
+    star_list = _keep_defined(star_list, _aavso_starlist_v0_3.StarList)
+    if not isinstance(star_list, dict):
+        return star_list
+    _refuse_non_finite(star_list, _0_3_STAR_LIST_FLOATS, path)
+    # A stack of 0 or less counts no images; "not applicable" is its honest
+    # reading. The frozen 0.3 model also took "0" and False, so read numbers.
+    if "stack" in star_list:
+        number = _as_number(star_list["stack"])
+        if number is not None and number < 1:
+            star_list["stack"] = None
+    items = star_list.get("staritems")
+    if isinstance(items, (list, tuple)):
+        star_list["staritems"] = [
+            _star_item_0_4(item, f"{path}.staritems[{index}]") for index, item in enumerate(items)
+        ]
+    return star_list
+
+
+def _migrate_0_3_to_0_4(data):
+    """
+    Migrate a 0.3 starlist set to schema version 0.4.0.
+
+    Parameters
+    ----------
+    data : dict
+        Raw starlist-set data from a 0.3 file. `upgrade` passes a copy.
+
+    Returns
+    -------
+    dict
+        ``data`` with the keys the 0.3 models do not define dropped at every
+        level (the 0.3 reader ignored them; 0.4.0 forbids them), a ``stack``
+        below 1 set to None on every star list, and ``star_lists`` a list. A
+        tuple of star lists or star items, which only `upgrade` called
+        directly can pass, is handled too.
+
+    Raises
+    ------
+    ValueError
+        If a float field holds infinity or NaN. Through `StarListSet`
+        pydantic reports it as a ``ValidationError`` (type ``value_error``);
+        from `upgrade` it is raised as is. Such a file is valid for 0.3 but
+        has no honest 0.4 form.
+    """
+    data = _keep_defined(data, _aavso_starlist_v0_3.StarListSet)
+    star_lists = data.get("star_lists")
+    if isinstance(star_lists, (list, tuple)):
+        data["star_lists"] = [
+            _star_list_0_4(star_list, f"star_lists[{index}]")
+            for index, star_list in enumerate(star_lists)
+        ]
+    return data
+
+
 # Keyed by the generation a file is in; the value takes it to the next generation.
 # Each breaking change adds an entry here, keyed by the generation being left,
 # with a frozen copy of that generation's models in its own _aavso_starlist_*.py.
@@ -908,6 +1133,12 @@ _MIGRATIONS = {
         "0.3.0",
         _migrate_0_2_to_0_3,
         'photometry_software became required; every star list gets ["unknown"]',
+    ),
+    "0.3": _Migration(
+        _aavso_starlist_v0_3.StarListSet,
+        "0.4.0",
+        _migrate_0_3_to_0_4,
+        "keys the 0.3 schema does not define were dropped and a stack below 1 became null",
     ),
 }
 
@@ -1110,6 +1341,9 @@ def upgrade(data):
     UnsupportedSchemaVersionError
         If the version is null, cannot be interpreted, is 0.2.0 or later but
         was never released, or has no migration path.
+    ValueError
+        If a migration refuses the data because the target generation cannot
+        hold it; the message names the field.
 
     Warns
     -----
@@ -1162,7 +1396,7 @@ class StarListSet(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin
     Class to hold a list for which each entry is a star list.
     """
     # Make the generated JSON schema state its own version.
-    model_config = ConfigDict(json_schema_extra={"version": SCHEMA_VERSION})
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"version": SCHEMA_VERSION})
 
     # Put the version here because this is the file we expect manufacturers
     # to submit.
@@ -1225,7 +1459,10 @@ class StarListSet(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin
         Raises
         ------
         pydantic.ValidationError
-            If the data is not valid for the schema version it states.
+            If the data is not valid for the schema version it states, or a
+            migration refuses it because the current generation cannot hold a
+            value in it (a `ValueError` from the migration, which pydantic
+            wraps).
         MigrationResultError
             If older data was valid as written but the upgraded data is not
             valid; this is a bug in a migration.

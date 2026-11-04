@@ -22,6 +22,7 @@
       "type": "string"
     },
     "StarItem": {
+      "additionalProperties": false,
       "description": "Definition of individual entries in an AAVSO star list.",
       "properties": {
         "x": {
@@ -138,6 +139,7 @@
       "type": "object"
     },
     "StarList": {
+      "additionalProperties": false,
       "description": "Definition of the header section of an AAVSO star list schema.",
       "properties": {
         "obs_time": {
@@ -251,6 +253,7 @@
         "stack": {
           "anyOf": [
             {
+              "minimum": 1,
               "type": "integer"
             },
             {
@@ -258,7 +261,7 @@
             }
           ],
           "default": null,
-          "description": "Number of images stacked to create this image. If not applicable, set to None.",
+          "description": "Number of images stacked to create this image, 1 or more. None if not applicable.",
           "examples": [
             3
           ],
@@ -423,14 +426,15 @@
       "type": "object"
     }
   },
+  "additionalProperties": false,
   "description": "Class to hold a list for which each entry is a star list.",
   "properties": {
     "schema_version": {
       "description": "The version of this schema that the file was written against, assigned by AAVSO",
       "examples": [
-        "0.3.2"
+        "0.4.0"
       ],
-      "pattern": "^(0\\.3\\.0|0\\.3\\.1|0\\.3\\.2)$",
+      "pattern": "^(0\\.4\\.0)$",
       "title": "Starlist Schema Version",
       "type": "string",
       "unit": "none"
@@ -454,5 +458,5 @@
   ],
   "title": "StarListSet",
   "type": "object",
-  "version": "0.3.2"
+  "version": "0.4.0"
 }
