@@ -846,6 +846,55 @@ def test_current_file_with_star_item_fwhm_round_trips():
     assert result.model_dump(mode="json") == data
 
 
+def test_file_from_before_bias_reads_it_as_none():
+    # The 0.3.0 sample file predates the per-frame bias (added in 0.3.2); it
+    # is in the current generation, so it is read without a warning (pytest
+    # treats an unexpected SchemaMigrationWarning as an error), restamped at
+    # the current version, with bias None on every star list.
+    _, written_at_0_3_0 = _before_after_pair("0.2")
+    assert written_at_0_3_0["schema_version"] == "0.3.0"
+    assert written_at_0_3_0["star_lists"]
+    assert all("bias" not in star_list for star_list in written_at_0_3_0["star_lists"])
+
+    result = StarListSet.model_validate(written_at_0_3_0)
+
+    assert result.schema_version == SCHEMA_VERSION
+    assert [star_list.bias for star_list in result.star_lists] == [None] * len(
+        result.star_lists
+    )
+
+
+@pytest.mark.parametrize("generation", ["legacy", "0.2"])
+def test_older_file_is_upgraded_with_bias_none(generation):
+    # A legacy or 0.2 file is migrated to the current generation and restamped
+    # at the current version, and every star list reads the bias added since
+    # as None.
+    before, _ = _before_after_pair(generation)
+
+    with pytest.warns(SchemaMigrationWarning):
+        result = StarListSet.model_validate(before)
+
+    assert result.schema_version == SCHEMA_VERSION
+    assert result.star_lists
+    assert all(star_list.bias is None for star_list in result.star_lists)
+
+
+@pytest.mark.parametrize("bias", [1000.0, None], ids=["number", "none"])
+def test_current_file_with_bias_round_trips(bias):
+    # A file at the current version that gives a bias is read without a
+    # warning (pytest treats an unexpected SchemaMigrationWarning as an
+    # error), keeps the value, and is written back unchanged; so is one that
+    # gives null, which says the bias is not available.
+    star_list = StarList.from_examples().model_dump(mode="json")
+    star_list["bias"] = bias
+    data = _example_data(star_lists=[star_list])
+
+    result = StarListSet.model_validate_json(json.dumps(data))
+
+    assert result.star_lists[0].bias == bias
+    assert result.model_dump(mode="json") == data
+
+
 def _written_at_0_2(version):
     """
     Load the sample file written at a version of the 0.2 generation.

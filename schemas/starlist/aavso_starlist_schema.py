@@ -34,13 +34,13 @@ except ImportError:  # pragma: no cover - source tree without the generated file
 # deliberately independent of the package version above: bump it whenever the
 # generated schema under aavso_starlist_schema_data/ changes. The archive test
 # fails if the generated schema changes without bumping this constant.
-SCHEMA_VERSION = "0.3.1"
+SCHEMA_VERSION = "0.3.2"
 
 # Every released schema version from 0.2.0 on, oldest first; add each new
 # SCHEMA_VERSION here. Listed in the code, rather than read from the archive
 # folders, so the versions this reader accepts never depend on the filesystem.
 # The archive test fails if this differs from the archived versions.
-_RELEASED_VERSIONS = ("0.2.0", "0.2.1", "0.3.0", "0.3.1")
+_RELEASED_VERSIONS = ("0.2.0", "0.2.1", "0.3.0", "0.3.1", "0.3.2")
 
 __all__ = [
     "AAVSOFilters",
@@ -475,6 +475,26 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             examples=[1.2]
         )
     ]
+    bias: Annotated[
+        float | None,
+        Field(
+            ge=0,
+            allow_inf_nan=False,
+            title="Bias Level",
+            description=(
+                "Bias (offset) level of this frame in adu: the value "
+                "`bkgd_count` would hold with no photon arrivals and no dark "
+                "current, in the pixel values the counts in this star list "
+                "were measured from. For a frame the vendor has "
+                "dark-subtracted and then offset to keep pixel values "
+                "positive, this is that fixed offset. For a raw frame with no "
+                "dark, flat or bias correction, it is the mean level of a "
+                "bias frame. None if not available."
+            ),
+            json_schema_extra=dict(unit="adu"),
+            examples=[1000.0]
+        )
+    ] = None
     fwhm: Annotated[
         float,
         Field(
@@ -615,7 +635,8 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             star item has None is a float `astropy.table.MaskedColumn`, masked
             where the value is None, so that `from_table` reads it back as
             None. The remaining information from the starlist is stored in
-            the table metadata.
+            the table metadata as plain JSON types (an enum member becomes
+            its string value), so the table can be written to a file.
 
         """
         table_dict = {col: [] for col in StarItem.model_fields}
@@ -638,7 +659,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
                     mask=[value is None for value in values],
                 )
 
-        table_meta = self.model_dump()
+        table_meta = self.model_dump(mode="json")
         table_meta.pop("staritems")
 
         return Table(table_dict, meta=table_meta)
