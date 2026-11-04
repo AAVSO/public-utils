@@ -846,17 +846,20 @@ def test_current_file_with_star_item_fwhm_round_trips():
     assert result.model_dump(mode="json") == data
 
 
-def test_file_from_before_bias_reads_it_as_none():
-    # The 0.3.0 sample file predates the per-frame bias (added in 0.3.2); it
-    # is in the current generation, so it is read without a warning (pytest
+@pytest.mark.parametrize("version", ["0.3.0", "0.3.1"])
+def test_file_from_before_bias_reads_it_as_none(version):
+    # A file stamped at a version of the current generation from before the
+    # per-frame bias (added in 0.3.2) has no bias. The 0.3.0 sample file,
+    # restamped at each such version, is read without a warning (pytest
     # treats an unexpected SchemaMigrationWarning as an error), restamped at
     # the current version, with bias None on every star list.
-    _, written_at_0_3_0 = _before_after_pair("0.2")
-    assert written_at_0_3_0["schema_version"] == "0.3.0"
-    assert written_at_0_3_0["star_lists"]
-    assert all("bias" not in star_list for star_list in written_at_0_3_0["star_lists"])
+    _, written_before_bias = _before_after_pair("0.2")
+    assert written_before_bias["schema_version"] == "0.3.0"
+    assert written_before_bias["star_lists"]
+    assert all("bias" not in star_list for star_list in written_before_bias["star_lists"])
+    written_before_bias["schema_version"] = version
 
-    result = StarListSet.model_validate(written_at_0_3_0)
+    result = StarListSet.model_validate(written_before_bias)
 
     assert result.schema_version == SCHEMA_VERSION
     assert [star_list.bias for star_list in result.star_lists] == [None] * len(

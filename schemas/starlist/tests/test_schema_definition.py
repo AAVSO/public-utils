@@ -147,6 +147,22 @@ def test_bias_accepts_null():
 @pytest.mark.parametrize(
     "value",
     [
+        pytest.param(0.0, id="zero"),
+        pytest.param(1000.0, id="positive"),
+    ],
+)
+def test_bias_accepts_non_negative_values(value):
+    # A non-negative bias is accepted and kept. 0 is the boundary of ge=0 and
+    # the value a frame whose bias or offset has already been subtracted gives.
+    data = StarList.from_examples().model_dump()
+    data["bias"] = value
+
+    assert StarList.model_validate(data).bias == value
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
         pytest.param(-1.0, id="negative"),
         pytest.param(float("inf"), id="infinite"),
         pytest.param(float("nan"), id="nan"),
@@ -191,10 +207,12 @@ def test_bias_markdown_row():
     assert cells[5] == "1000.0 |"
 
 
-@pytest.mark.parametrize("bias", [1000.0, None], ids=["number", "none"])
+@pytest.mark.parametrize("bias", [1000.0, 0.0, None], ids=["number", "zero", "none"])
 def test_bias_survives_a_table_round_trip(bias):
     # bias is carried in the table metadata, a number or None, so a star list
-    # turned into a table and back in memory keeps it.
+    # turned into a table and back in memory keeps it. The metadata holds
+    # plain JSON types, so the filter enum member is stored as its string
+    # value, which is what lets the table be written to ECSV.
     data = StarList.from_examples().model_dump()
     data["bias"] = bias
     data["staritems"] = [StarItem.from_examples()]
@@ -203,6 +221,7 @@ def test_bias_survives_a_table_round_trip(bias):
     table = star_list.to_table()
 
     assert table.meta["bias"] == bias
+    assert type(table.meta["filter"]) is str
     assert StarList.from_table(table) == star_list
 
 

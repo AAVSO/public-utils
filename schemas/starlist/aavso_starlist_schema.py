@@ -489,7 +489,11 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
                 "dark-subtracted and then offset to keep pixel values "
                 "positive, this is that fixed offset. For a raw frame with no "
                 "dark, flat or bias correction, it is the mean level of a "
-                "bias frame. None if not available."
+                "bias frame. It is 0 if the bias or offset has already been "
+                "subtracted from the pixel values. For a star list measured on "
+                "a stacked image it is the level in that image: the sum of the "
+                "per-frame offsets for a summed stack, the per-frame offset "
+                "for a mean or median stack. None if not available."
             ),
             json_schema_extra=dict(unit="adu"),
             examples=[1000.0]
@@ -636,7 +640,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             where the value is None, so that `from_table` reads it back as
             None. The remaining information from the starlist is stored in
             the table metadata as plain JSON types (an enum member becomes
-            its string value), so the table can be written to a file.
+            its string value), so the table can be written to ECSV.
 
         """
         table_dict = {col: [] for col in StarItem.model_fields}
