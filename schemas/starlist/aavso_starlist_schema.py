@@ -357,6 +357,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     observer: Annotated[
         str,
         Field(
+            max_length=7,
             title="Observer Code",
             description="AAVSO code of the observer",
             json_schema_extra=dict(unit="none"),
@@ -375,6 +376,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     block_filter: Annotated[
         str,
         Field(
+            max_length=31,
             title="Blocking Filter",
             description="Name of blocking filter used on telescope",
             json_schema_extra=dict(unit="none"),
@@ -394,6 +396,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     tel_manufac: Annotated[
         str,
         Field(
+            max_length=63,
             title="Telescope Manufacturer",
             description="Name of the telescope manufacturer",
             json_schema_extra=dict(unit="none"),
@@ -436,6 +439,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     tel_model: Annotated[
         str,
         Field(
+            max_length=63,
             title="Telescope Model",
             description="Model of the telescope",
             json_schema_extra=dict(unit="none"),
@@ -445,6 +449,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     tel_firmware: Annotated[
         str,
         Field(
+            max_length=31,
             title="Telescope Firmware",
             description="Firmware version of the telescope",
             json_schema_extra=dict(unit="none"),
@@ -517,6 +522,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     refframe: Annotated[
         str,
         Field(
+            max_length=15,
             title="Coordinate Reference Frame",
             description="Reference frame of the observation",
             json_schema_extra=dict(unit="none"),
@@ -524,7 +530,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
         )
     ]
     photometry_software: Annotated[
-        list[Annotated[str, Field(min_length=1)]],
+        list[Annotated[str, Field(min_length=1, max_length=63)]],
         Field(
             min_length=1,
             title="Photometry Software",
@@ -553,6 +559,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     staritems: Annotated[
         list[StarItem],
         Field(
+            max_length=100_000,
             title="Star Items",
             description="List of stars detected in the image",
             json_schema_extra=dict(unit="none"),
@@ -920,6 +927,12 @@ _0_3_STAR_ITEM_FLOATS = (
     "x", "y", "ra", "dec", "tot_count", "count_err", "bkgd_count", "peak_count", "fwhm",
 )
 _0_4_CANNOT_UPGRADE = "schema version 0.4.0 {rule}, so this file cannot be upgraded from 0.3"
+_0_4_MAX_STRING_LENGTHS = {
+    "observer": 7, "block_filter": 31, "tel_manufac": 63, "tel_model": 63,
+    "tel_firmware": 31, "refframe": 15,
+}
+_0_4_MAX_PHOTOMETRY_SOFTWARE_ENTRY = 63
+_0_4_MAX_STARITEMS = 100_000
 
 
 def _as_number(value):
@@ -1008,6 +1021,45 @@ def _refuse_non_finite(record, float_fields, path):
                 )
 
 
+def _refuse_overlong(star_list, path):
+    """
+    Refuse a star list with a string longer than 0.4.0 allows.
+
+    Parameters
+    ----------
+    star_list : dict
+        A star list from a 0.3 file.
+    path : str
+        Where ``star_list`` is in the file, such as ``star_lists[0]``, for the
+        error message.
+
+    Raises
+    ------
+    ValueError
+        If one of the fields in `_0_4_MAX_STRING_LENGTHS`, or an entry of
+        ``photometry_software``, is a string with more characters (code
+        points, as pydantic counts them) than 0.4.0 allows; the message names
+        ``path`` and the field.
+    """
+    for name, limit in _0_4_MAX_STRING_LENGTHS.items():
+        value = star_list.get(name)
+        if isinstance(value, str) and len(value) > limit:
+            raise ValueError(
+                f"{path}.{name} has {len(value)} characters; "
+                + _0_4_CANNOT_UPGRADE.format(rule=f"allows at most {limit}")
+            )
+    software = star_list.get("photometry_software")
+    if isinstance(software, (list, tuple)):
+        for index, entry in enumerate(software):
+            if isinstance(entry, str) and len(entry) > _0_4_MAX_PHOTOMETRY_SOFTWARE_ENTRY:
+                raise ValueError(
+                    f"{path}.photometry_software[{index}] has {len(entry)} characters; "
+                    + _0_4_CANNOT_UPGRADE.format(
+                        rule=f"allows at most {_0_4_MAX_PHOTOMETRY_SOFTWARE_ENTRY}"
+                    )
+                )
+
+
 def _star_item_0_4(item, path):
     """
     Migrate one star item of a 0.3 file to schema version 0.4.0.
@@ -1062,12 +1114,14 @@ def _star_list_0_4(star_list, path):
     ------
     ValueError
         If a float field of the star list or of one of its star items holds
-        infinity or NaN.
+        infinity or NaN, a string field is longer than 0.4.0 allows, or the
+        star list has more than 100000 star items.
     """
     star_list = _keep_defined(star_list, _aavso_starlist_v0_3.StarList)
     if not isinstance(star_list, dict):
         return star_list
     _refuse_non_finite(star_list, _0_3_STAR_LIST_FLOATS, path)
+    _refuse_overlong(star_list, path)
     # A stack of 0 or less counts no images; "not applicable" is its honest
     # reading. The frozen 0.3 model also took "0" and False, so read numbers.
     if "stack" in star_list:
@@ -1076,6 +1130,11 @@ def _star_list_0_4(star_list, path):
             star_list["stack"] = None
     items = star_list.get("staritems")
     if isinstance(items, (list, tuple)):
+        if len(items) > _0_4_MAX_STARITEMS:
+            raise ValueError(
+                f"{path}.staritems has {len(items)} entries; "
+                + _0_4_CANNOT_UPGRADE.format(rule=f"allows at most {_0_4_MAX_STARITEMS}")
+            )
         star_list["staritems"] = [
             _star_item_0_4(item, f"{path}.staritems[{index}]") for index, item in enumerate(items)
         ]
@@ -1103,10 +1162,11 @@ def _migrate_0_3_to_0_4(data):
     Raises
     ------
     ValueError
-        If a float field holds infinity or NaN. Through `StarListSet`
-        pydantic reports it as a ``ValidationError`` (type ``value_error``);
-        from `upgrade` it is raised as is. Such a file is valid for 0.3 but
-        has no honest 0.4 form.
+        If a float field holds infinity or NaN, a string field is longer
+        than 0.4.0 allows, or a star list has more than 100000 star items.
+        Through `StarListSet` pydantic reports it as a ``ValidationError``
+        (type ``value_error``); from `upgrade` it is raised as is. Such a
+        file is valid for 0.3 but has no honest 0.4 form.
     """
     data = _keep_defined(data, _aavso_starlist_v0_3.StarListSet)
     star_lists = data.get("star_lists")

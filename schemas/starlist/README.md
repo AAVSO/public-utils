@@ -200,15 +200,18 @@ A file already in the current generation only gets step 3.
 A migration may refuse a file the new generation cannot hold. The 0.3 to 0.4
 migration drops keys the 0.3 schema did not define (the 0.3 reader ignored
 them) and turns a `stack` of 0 or less into `null`, but a float that is
-infinite or NaN has no 0.4 form: the migration raises `ValueError` naming the
-field. Through `StarListSet` that arrives as the usual pydantic
+infinite or NaN, a string longer than 0.4.0 allows, or a star list of more
+than 100000 star items has no 0.4 form: the migration raises `ValueError`
+naming the field. Through `StarListSet` that arrives as the usual pydantic
 `ValidationError`; `upgrade()` raises the `ValueError` itself. That is a
 problem with the file, not with the package, so it is not a
 `MigrationResultError`.
 
 From 0.4.0 the models forbid keys they do not define (`additionalProperties:
-false` in the schema), reject infinity and NaN in every float field, and
-require `stack` to be 1 or more or `null`.
+false` in the schema), reject infinity and NaN in every float field,
+require `stack` to be 1 or more or `null`, and cap the length of each string
+field and the number of star items (see `schema_definition.json` for the
+limits).
 
 ```python
 from pathlib import Path

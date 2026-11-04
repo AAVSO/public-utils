@@ -189,6 +189,7 @@
           "examples": [
             "MMU"
           ],
+          "maxLength": 7,
           "title": "Observer Code",
           "type": "string",
           "unit": "none"
@@ -207,6 +208,7 @@
           "examples": [
             "UV+IR"
           ],
+          "maxLength": 31,
           "title": "Blocking Filter",
           "type": "string",
           "unit": "none"
@@ -226,6 +228,7 @@
           "examples": [
             "Celestron"
           ],
+          "maxLength": 63,
           "title": "Telescope Manufacturer",
           "type": "string",
           "unit": "none"
@@ -273,6 +276,7 @@
           "examples": [
             "Origin 1"
           ],
+          "maxLength": 63,
           "title": "Telescope Model",
           "type": "string",
           "unit": "none"
@@ -282,6 +286,7 @@
           "examples": [
             "20240817.01"
           ],
+          "maxLength": 31,
           "title": "Telescope Firmware",
           "type": "string",
           "unit": "none"
@@ -349,6 +354,7 @@
           "examples": [
             "ICRS"
           ],
+          "maxLength": 15,
           "title": "Coordinate Reference Frame",
           "type": "string",
           "unit": "none"
@@ -362,6 +368,7 @@
             ]
           ],
           "items": {
+            "maxLength": 63,
             "minLength": 1,
             "type": "string"
           },
@@ -395,6 +402,7 @@
           "items": {
             "$ref": "#/$defs/StarItem"
           },
+          "maxItems": 100000,
           "title": "Star Items",
           "type": "array",
           "unit": "none"

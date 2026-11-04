@@ -32,6 +32,12 @@ STAR_LIST_FLOAT_FIELDS = [
     "site_lat", "site_lon", "site_elev", "exposure", "egain", "bias", "fwhm", "absolute_focus",
 ]
 
+# The maximum length, in characters, of each capped string field of a star list.
+STRING_LIMITS = {
+    "observer": 7, "block_filter": 31, "tel_manufac": 63, "tel_model": 63,
+    "tel_firmware": 31, "refframe": 15,
+}
+
 
 def _one_star_set_data():
     """
@@ -428,6 +434,78 @@ def test_photometry_software_survives_a_table_round_trip():
     assert result == star_list
 
 
+
+@pytest.mark.parametrize(
+    "field_name,limit", list(STRING_LIMITS.items()), ids=list(STRING_LIMITS)
+)
+def test_string_field_accepts_its_maximum_length(field_name, limit):
+    # A string exactly as long as its field allows is accepted and kept.
+    data = StarList.from_examples().model_dump()
+    data[field_name] = "x" * limit
+
+    assert getattr(StarList.model_validate(data), field_name) == "x" * limit
+
+
+@pytest.mark.parametrize(
+    "field_name,limit", list(STRING_LIMITS.items()), ids=list(STRING_LIMITS)
+)
+def test_string_field_rejects_one_character_over_its_maximum(field_name, limit):
+    # One character over the limit is rejected, naming the field and the limit.
+    data = StarList.from_examples().model_dump()
+    data[field_name] = "x" * (limit + 1)
+
+    with pytest.raises(ValidationError, match=f"at most {limit} characters") as excinfo:
+        StarList.model_validate(data)
+
+    assert field_name in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "field_name,limit", list(STRING_LIMITS.items()), ids=list(STRING_LIMITS)
+)
+def test_string_limits_are_in_the_schema(field_name, limit):
+    # Each string limit appears in the generated schema as maxLength.
+    schema = StarList.model_json_schema()
+
+    assert schema["properties"][field_name]["maxLength"] == limit
+
+
+@pytest.mark.parametrize("length,accepted", [(63, True), (64, False)])
+def test_photometry_software_entry_length(length, accepted):
+    # Each photometry_software entry may be at most 63 characters long, and
+    # the schema says so on the list's items.
+    data = StarList.from_examples().model_dump()
+    data["photometry_software"] = ["x" * length]
+
+    if accepted:
+        assert StarList.model_validate(data).photometry_software == ["x" * length]
+    else:
+        with pytest.raises(ValidationError, match="at most 63") as excinfo:
+            StarList.model_validate(data)
+        assert "photometry_software" in str(excinfo.value)
+    schema = StarList.model_json_schema()
+    assert schema["properties"]["photometry_software"]["items"]["maxLength"] == 63
+
+
+def test_staritems_accepts_the_maximum_number():
+    # A star list of exactly 100000 star items, the cap, is accepted.
+    data = StarList.from_examples().model_dump()
+    data["staritems"] = [StarItem.from_examples().model_dump()] * 100_000
+
+    assert len(StarList.model_validate(data).staritems) == 100_000
+
+
+def test_staritems_rejects_one_over_the_maximum():
+    # One star item over the cap is rejected, and the schema states the cap
+    # as maxItems.
+    data = StarList.from_examples().model_dump()
+    data["staritems"] = [StarItem.from_examples().model_dump()] * 100_001
+
+    with pytest.raises(ValidationError, match="at most 100000 items"):
+        StarList.model_validate(data)
+    schema = StarList.model_json_schema()
+    assert schema["properties"]["staritems"]["maxItems"] == 100_000
+
 def _count_cells(row):
     """
     Count the cells in one row of a markdown table.
@@ -631,7 +709,7 @@ def test_make_star_list_from_table_of_items():
 
     # 3. Provide both table metadata and explicit metadata argument.
     #    The explicit metadata should take precedence
-    fake_observer = "Ima Fake"
+    fake_observer = "FAKE"
     meta["observer"] = fake_observer
     sl3 = StarList.from_table(table, meta)
     assert sl3.observer == fake_observer

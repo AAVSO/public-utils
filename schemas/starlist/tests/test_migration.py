@@ -15,6 +15,9 @@ import _aavso_starlist_v0_3
 from aavso_starlist_schema import (
     _0_3_STAR_ITEM_FLOATS,
     _0_3_STAR_LIST_FLOATS,
+    _0_4_MAX_PHOTOMETRY_SOFTWARE_ENTRY,
+    _0_4_MAX_STARITEMS,
+    _0_4_MAX_STRING_LENGTHS,
     _MIGRATIONS,
     SCHEMA_VERSION,
     MigrationResultError,
@@ -1178,23 +1181,89 @@ def _set_bkgd_count_to_the_string_infinity(data):
     data["star_lists"][0]["staritems"][0]["bkgd_count"] = "Infinity"
 
 
+def _set_observer_to_eight_characters(data):
+    """
+    Make the observer code of the first star list one character too long.
+
+    Parameters
+    ----------
+    data : dict
+        Raw 0.3 starlist-set data, modified in place.
+    """
+    data["star_lists"][0]["observer"] = "ABCDEFGH"
+
+
+def _set_software_entry_to_64_characters(data):
+    """
+    Make the only photometry_software entry of the first star list too long.
+
+    Parameters
+    ----------
+    data : dict
+        Raw 0.3 starlist-set data, modified in place.
+    """
+    data["star_lists"][0]["photometry_software"] = ["x" * 64]
+
+
+def _set_100001_star_items(data):
+    """
+    Give the first star list one star item more than 0.4.0 allows.
+
+    Parameters
+    ----------
+    data : dict
+        Raw 0.3 starlist-set data, modified in place; the first star list
+        gets 100001 copies of its first star item.
+    """
+    item = data["star_lists"][0]["staritems"][0]
+    data["star_lists"][0]["staritems"] = [item] * 100_001
+
+
 @pytest.mark.parametrize(
-    "mutate, path",
+    "mutate, path, problem",
     [
         pytest.param(
-            _set_star_item_x_to_infinity, "star_lists[0].staritems[1].x", id="inf-star-item"
+            _set_star_item_x_to_infinity,
+            "star_lists[0].staritems[1].x",
+            "requires a finite number",
+            id="inf-star-item",
         ),
-        pytest.param(_set_site_elev_to_nan, "star_lists[1].site_elev", id="nan-star-list"),
+        pytest.param(
+            _set_site_elev_to_nan,
+            "star_lists[1].site_elev",
+            "requires a finite number",
+            id="nan-star-list",
+        ),
         pytest.param(
             _set_bkgd_count_to_the_string_infinity,
             "star_lists[0].staritems[0].bkgd_count",
+            "requires a finite number",
             id="inf-as-string",
+        ),
+        pytest.param(
+            _set_observer_to_eight_characters,
+            "star_lists[0].observer",
+            "has 8 characters; schema version 0.4.0 allows at most 7",
+            id="observer-too-long",
+        ),
+        pytest.param(
+            _set_software_entry_to_64_characters,
+            "star_lists[0].photometry_software[0]",
+            "has 64 characters; schema version 0.4.0 allows at most 63",
+            id="software-entry-too-long",
+        ),
+        pytest.param(
+            _set_100001_star_items,
+            "star_lists[0].staritems",
+            "has 100001 entries; schema version 0.4.0 allows at most 100000",
+            id="too-many-star-items",
         ),
     ],
 )
-def test_0_3_file_the_new_generation_cannot_hold_is_rejected(mutate, path):
-    # A 0.3 file may hold a value 0.4.0 has no form for, such as an infinite
-    # or NaN float (also as a string, which the frozen 0.3 model accepts).
+def test_0_3_file_the_new_generation_cannot_hold_is_rejected(mutate, path, problem):
+    # A 0.3 file may hold a value 0.4.0 has no form for: an infinite or NaN
+    # float (also as a string, which the frozen 0.3 model accepts), a string
+    # longer than 0.4.0 allows, or more star items than it allows.
     # The migration refuses it naming the field: through the model that is
     # the usual ValidationError, a problem with the file and not a
     # MigrationResultError; from upgrade() it is the ValueError itself. The
@@ -1209,6 +1278,7 @@ def test_0_3_file_the_new_generation_cannot_hold_is_rejected(mutate, path):
     assert error["type"] == "value_error"
     assert error["loc"] == ()
     assert re.search(re.escape(path), error["msg"])
+    assert problem in error["msg"]
     assert "cannot be upgraded from 0.3" in error["msg"]
     assert not isinstance(excinfo.value, MigrationResultError)
 
@@ -1270,3 +1340,40 @@ def test_0_3_migration_float_field_lists_match_the_frozen_models():
     # frozen 0.3 models, so none escapes the check for infinity and NaN.
     assert _0_3_STAR_ITEM_FLOATS == _float_fields(_aavso_starlist_v0_3.StarItem)
     assert _0_3_STAR_LIST_FLOATS == _float_fields(_aavso_starlist_v0_3.StarList)
+
+
+def test_0_3_migration_limits_match_the_0_4_models():
+    # The migration names the 0.4.0 string and star item limits as literals,
+    # since it is frozen once released; they must be the limits of the 0.4
+    # models. Valid while 0.4 is the current generation: once it is left,
+    # compare against the frozen 0.4 models instead.
+    properties = StarList.model_json_schema()["properties"]
+
+    assert _0_4_MAX_STRING_LENGTHS == {
+        name: properties[name]["maxLength"] for name in _0_4_MAX_STRING_LENGTHS
+    }
+    assert (
+        _0_4_MAX_PHOTOMETRY_SOFTWARE_ENTRY
+        == properties["photometry_software"]["items"]["maxLength"]
+    )
+    assert _0_4_MAX_STARITEMS == properties["staritems"]["maxItems"]
+
+
+def test_0_3_file_at_the_new_limits_is_upgraded():
+    # A 0.3 file with strings exactly as long as 0.4.0 allows and exactly
+    # 100000 star items is upgraded, with the warning, and keeps them.
+    data = _written_at_0_3()
+    star_list = data["star_lists"][0]
+    star_list["observer"] = "x" * 7
+    star_list["refframe"] = "x" * 15
+    star_list["photometry_software"] = ["x" * 63]
+    star_list["staritems"] = [star_list["staritems"][1]] * 100_000
+
+    with pytest.warns(SchemaMigrationWarning):
+        result = StarListSet.model_validate(data)
+
+    upgraded = result.star_lists[0]
+    assert upgraded.observer == "x" * 7
+    assert upgraded.refframe == "x" * 15
+    assert upgraded.photometry_software == ["x" * 63]
+    assert len(upgraded.staritems) == 100_000
