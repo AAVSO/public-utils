@@ -5,6 +5,7 @@ from typing import Annotated, Optional
 import numpy as np
 import pytest
 from astropy.table import MaskedColumn, Table
+from conftest import float_fields
 from pydantic import ValidationError
 
 from aavso_starlist_schema import (
@@ -139,22 +140,16 @@ def test_star_item_fwhm_must_be_positive(value):
 
 
 @pytest.mark.parametrize(
-    "klass, float_fields",
+    "klass, expected",
     [
         pytest.param(StarItem, STAR_ITEM_FLOAT_FIELDS, id="StarItem"),
         pytest.param(StarList, STAR_LIST_FLOAT_FIELDS, id="StarList"),
     ],
 )
-def test_float_fields_are_all_listed(klass, float_fields):
+def test_float_fields_are_all_listed(klass, expected):
     # The lists of float fields the next tests check are every field whose
     # type is float, optional or not, so a new float field cannot escape them.
-    found = [
-        name
-        for name, field in klass.model_fields.items()
-        if _type_name(field.annotation) in ("float", "float | None")
-    ]
-
-    assert found == float_fields
+    assert list(float_fields(klass)) == expected
 
 
 @pytest.mark.parametrize(
@@ -175,7 +170,7 @@ def test_float_field_rejects_infinity_and_nan(klass, field_name, value):
     with pytest.raises(ValidationError, match="finite number") as excinfo:
         klass.model_validate(data)
 
-    assert field_name in str(excinfo.value)
+    assert excinfo.value.errors()[0]["loc"] == (field_name,)
 
 
 @pytest.mark.parametrize("value", [float("inf"), float("nan")], ids=["inf", "nan"])
@@ -188,8 +183,15 @@ def test_json_text_with_infinity_or_nan_token_is_rejected(value):
     data["star_lists"][0]["staritems"][0]["bkgd_count"] = value
     text = json.dumps(data)
 
-    with pytest.raises(ValidationError, match="finite number"):
+    with pytest.raises(ValidationError, match="finite number") as excinfo:
         StarListSet.model_validate_json(text)
+
+    errors = excinfo.value.errors()
+    assert {tuple(error["loc"]) for error in errors} == {
+        ("star_lists", 0, "site_elev"),
+        ("star_lists", 0, "staritems", 0, "bkgd_count"),
+    }
+    assert all(error["type"] == "finite_number" for error in errors)
 
 
 @pytest.mark.parametrize(
@@ -199,6 +201,7 @@ def test_json_text_with_infinity_or_nan_token_is_rejected(value):
         ("star_list", ("star_lists", 0, "bogus")),
         ("star_item", ("star_lists", 0, "staritems", 0, "bogus")),
     ],
+    ids=["set", "star_list", "star_item"],
 )
 def test_unknown_key_is_rejected_at_each_level(level, loc):
     # A key the schema does not define is rejected at every level of the
@@ -434,7 +437,6 @@ def test_photometry_software_survives_a_table_round_trip():
     assert result == star_list
 
 
-
 @pytest.mark.parametrize(
     "field_name,limit", list(STRING_LIMITS.items()), ids=list(STRING_LIMITS)
 )
@@ -457,7 +459,7 @@ def test_string_field_rejects_one_character_over_its_maximum(field_name, limit):
     with pytest.raises(ValidationError, match=f"at most {limit} characters") as excinfo:
         StarList.model_validate(data)
 
-    assert field_name in str(excinfo.value)
+    assert excinfo.value.errors()[0]["loc"] == (field_name,)
 
 
 @pytest.mark.parametrize(
@@ -470,21 +472,27 @@ def test_string_limits_are_in_the_schema(field_name, limit):
     assert schema["properties"][field_name]["maxLength"] == limit
 
 
-@pytest.mark.parametrize("length,accepted", [(63, True), (64, False)])
-def test_photometry_software_entry_length(length, accepted):
-    # Each photometry_software entry may be at most 63 characters long, and
-    # the schema says so on the list's items.
+def test_photometry_software_entry_accepts_its_maximum_length():
+    # A photometry_software entry of exactly 63 characters is accepted and
+    # kept, and the schema states the limit on the list's items.
     data = StarList.from_examples().model_dump()
-    data["photometry_software"] = ["x" * length]
+    data["photometry_software"] = ["x" * 63]
 
-    if accepted:
-        assert StarList.model_validate(data).photometry_software == ["x" * length]
-    else:
-        with pytest.raises(ValidationError, match="at most 63") as excinfo:
-            StarList.model_validate(data)
-        assert "photometry_software" in str(excinfo.value)
+    assert StarList.model_validate(data).photometry_software == ["x" * 63]
     schema = StarList.model_json_schema()
     assert schema["properties"]["photometry_software"]["items"]["maxLength"] == 63
+
+
+def test_photometry_software_entry_rejects_one_character_over():
+    # A photometry_software entry of 64 characters is rejected, and the
+    # error points at the entry.
+    data = StarList.from_examples().model_dump()
+    data["photometry_software"] = ["x" * 64]
+
+    with pytest.raises(ValidationError, match="at most 63") as excinfo:
+        StarList.model_validate(data)
+
+    assert excinfo.value.errors()[0]["loc"] == ("photometry_software", 0)
 
 
 def test_staritems_accepts_the_maximum_number():
@@ -505,6 +513,7 @@ def test_staritems_rejects_one_over_the_maximum():
         StarList.model_validate(data)
     schema = StarList.model_json_schema()
     assert schema["properties"]["staritems"]["maxItems"] == 100_000
+
 
 def _count_cells(row):
     """

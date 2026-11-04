@@ -947,17 +947,19 @@ def _as_number(value):
     Returns
     -------
     float or None
-        ``float(value)`` for an int, a float, a bool or a numeric string,
-        including ``"inf"``, ``"Infinity"`` and ``"nan"``, which the frozen
-        0.3 models accept; None for anything else, or a string that is not a
-        number or overflows.
+        ``float(value)`` for anything ``float`` accepts: an int, a float, a
+        bool, a numeric string (including ``"inf"``, ``"Infinity"`` and
+        ``"nan"``, which the frozen 0.3 models accept) and numeric types such
+        as numpy scalars or ``fractions.Fraction``, which only data built in
+        Python can hold. An int too large for a float becomes infinity of its
+        sign. None for anything else, such as a string that is not a number.
     """
-    if isinstance(value, (bool, int, float, str)):
-        try:
-            return float(value)
-        except (ValueError, OverflowError):
-            return None
-    return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+    except OverflowError:
+        return math.inf if value > 0 else -math.inf
 
 
 def _keep_defined(record, model):
@@ -1493,11 +1495,11 @@ class StarListSet(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin
         constructor, so every way of creating a `StarListSet` reads old files.
         Data from an older generation goes through three steps:
 
-        1. Validate it, as given, against the frozen model of its own
-           generation.
-        2. Convert it to plain JSON data with `_to_plain`, keeping keys the
-           frozen model ignores, and upgrade it to the current version with
-           `upgrade`.
+        1. Convert it to plain JSON data with `_to_plain`, once, so a one-shot
+           iterator such as a generator is read only once, and validate it
+           against the frozen model of its own generation.
+        2. Upgrade the plain data, keys the frozen model ignores included, to
+           the current version with `upgrade`.
         3. Validate the result against this model.
 
         Data already in the current generation only gets step 3, stamped with
@@ -1546,10 +1548,13 @@ class StarListSet(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin
             # the model always states the version it conforms to.
             return handler({**data, "schema_version": SCHEMA_VERSION})
 
+        # Convert the raw input once, before both steps: a one-shot iterator
+        # read by the frozen model would reach the migrations empty. Upgrade
+        # the plain input, not the validated model, so keys the frozen model
+        # ignores still reach the migrations.
+        data = _to_plain(data)
         _MIGRATIONS[generation].model.model_validate(data)
-        # Convert the raw input, not the validated model, so keys the frozen
-        # model ignores still reach the migrations.
-        upgraded = upgrade(_to_plain(data))
+        upgraded = upgrade(data)
         try:
             return handler(upgraded)
         except ValidationError as error:

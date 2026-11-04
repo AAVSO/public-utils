@@ -6,7 +6,9 @@ from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
 
+import numpy as np
 import pytest
+from conftest import float_fields
 from pydantic import ValidationError
 
 import _aavso_starlist_legacy
@@ -30,7 +32,6 @@ from aavso_starlist_schema import (
     _generation,
     _Migration,
     _parse_semver,
-    _type_name,
     upgrade,
     validate_as_written,
 )
@@ -977,10 +978,11 @@ def test_0_2_file_with_photometry_software_already_gets_unknown(value):
     ]
 
 
-def test_legacy_file_is_upgraded_through_both_migrations():
+def test_legacy_file_is_upgraded_through_every_migration():
     # A legacy file is migrated to 0.2, then to 0.3 and on to the current
-    # generation, and so gets photometry_software ["unknown"] too. (That the warning names both steps
-    # is checked by test_legacy_versions_are_upgraded_with_warning.)
+    # generation, and so gets photometry_software ["unknown"] too. (That the
+    # warning names every step is checked by
+    # test_legacy_versions_are_upgraded_with_warning.)
     before, _ = _before_after_pair("legacy")
 
     with pytest.warns(SchemaMigrationWarning):
@@ -1044,28 +1046,6 @@ def _written_at_0_3(version="0.3.2"):
     return data
 
 
-def _float_fields(model):
-    """
-    Name the fields of a model whose type is float, optional or not.
-
-    Parameters
-    ----------
-    model : type
-        A pydantic model class.
-
-    Returns
-    -------
-    tuple of str
-        The names of the fields typed ``float`` or ``float | None``, in the
-        order the model defines them.
-    """
-    return tuple(
-        name
-        for name, field in model.model_fields.items()
-        if _type_name(field.annotation) in ("float", "float | None")
-    )
-
-
 @pytest.mark.parametrize("version", ["0.3.0", "0.3.1", "0.3.2"])
 def test_0_3_file_is_validated_against_the_frozen_0_3_model(version):
     # validate_as_written checks a file from any 0.3 version against the
@@ -1114,13 +1094,14 @@ def test_0_3_migration_drops_keys_the_0_3_models_do_not_define():
 
 @pytest.mark.parametrize(
     "value",
-    [0, -1, "0", False],
-    ids=["zero", "negative", "numeric-string", "false"],
+    [0, -1, "0", False, -(10**400), np.int64(0)],
+    ids=["zero", "negative", "numeric-string", "false", "huge-negative", "numpy-zero"],
 )
 def test_stack_below_one_in_a_0_3_file_becomes_none(value):
     # A stack of 0 or less counts no images, so it becomes None, "not
-    # applicable". The frozen 0.3 model accepts the numeric string and the
-    # bool, so the migration reads them as numbers too.
+    # applicable". The frozen 0.3 model accepts the numeric string, the bool,
+    # an int too large for a float and a numpy integer built in Python, so
+    # the migration reads them as numbers too.
     data = _written_at_0_3()
     data["star_lists"][0]["stack"] = value
 
@@ -1131,10 +1112,12 @@ def test_stack_below_one_in_a_0_3_file_becomes_none(value):
     assert _MIGRATIONS["0.3"].func(copy.deepcopy(data))["star_lists"][0]["stack"] is None
 
 
-@pytest.mark.parametrize("value", [1, 3, None], ids=["one", "three", "none"])
+@pytest.mark.parametrize(
+    "value", [1, 3, None, 10**400], ids=["one", "three", "none", "huge"]
+)
 def test_stack_of_one_or_none_in_a_0_3_file_is_kept(value):
     # A stack of 1 or more, or None, is valid for 0.4.0 and comes through
-    # the migration unchanged.
+    # the migration unchanged, even an int too large for a float.
     data = _written_at_0_3()
     data["star_lists"][0]["stack"] = value
 
@@ -1179,6 +1162,19 @@ def _set_bkgd_count_to_the_string_infinity(data):
         Raw 0.3 starlist-set data, modified in place.
     """
     data["star_lists"][0]["staritems"][0]["bkgd_count"] = "Infinity"
+
+
+def _set_site_elev_to_numpy_infinity(data):
+    """
+    Make the site elevation of the first star list a numpy float32 infinity.
+
+    Parameters
+    ----------
+    data : dict
+        Raw 0.3 starlist-set data, modified in place. Only data built in
+        Python can hold a numpy value.
+    """
+    data["star_lists"][0]["site_elev"] = np.float32(np.inf)
 
 
 def _set_observer_to_eight_characters(data):
@@ -1241,6 +1237,12 @@ def _set_100001_star_items(data):
             id="inf-as-string",
         ),
         pytest.param(
+            _set_site_elev_to_numpy_infinity,
+            "star_lists[0].site_elev",
+            "requires a finite number",
+            id="inf-as-numpy",
+        ),
+        pytest.param(
             _set_observer_to_eight_characters,
             "star_lists[0].observer",
             "has 8 characters; schema version 0.4.0 allows at most 7",
@@ -1280,7 +1282,7 @@ def test_0_3_file_the_new_generation_cannot_hold_is_rejected(mutate, path, probl
     assert re.search(re.escape(path), error["msg"])
     assert problem in error["msg"]
     assert "cannot be upgraded from 0.3" in error["msg"]
-    assert not isinstance(excinfo.value, MigrationResultError)
+    assert type(error["ctx"]["error"]) is ValueError
 
     with pytest.raises(ValueError, match=re.escape(path)) as excinfo:
         upgrade(data)
@@ -1338,8 +1340,8 @@ def test_0_3_migration_float_field_lists_match_the_frozen_models():
     # The migration names the 0.3 float fields as literals, since it is
     # frozen once released; they must be exactly the float fields of the
     # frozen 0.3 models, so none escapes the check for infinity and NaN.
-    assert _0_3_STAR_ITEM_FLOATS == _float_fields(_aavso_starlist_v0_3.StarItem)
-    assert _0_3_STAR_LIST_FLOATS == _float_fields(_aavso_starlist_v0_3.StarList)
+    assert _0_3_STAR_ITEM_FLOATS == float_fields(_aavso_starlist_v0_3.StarItem)
+    assert _0_3_STAR_LIST_FLOATS == float_fields(_aavso_starlist_v0_3.StarList)
 
 
 def test_0_3_migration_limits_match_the_0_4_models():
@@ -1350,7 +1352,7 @@ def test_0_3_migration_limits_match_the_0_4_models():
     properties = StarList.model_json_schema()["properties"]
 
     assert _0_4_MAX_STRING_LENGTHS == {
-        name: properties[name]["maxLength"] for name in _0_4_MAX_STRING_LENGTHS
+        name: prop["maxLength"] for name, prop in properties.items() if "maxLength" in prop
     }
     assert (
         _0_4_MAX_PHOTOMETRY_SOFTWARE_ENTRY
@@ -1364,16 +1366,52 @@ def test_0_3_file_at_the_new_limits_is_upgraded():
     # 100000 star items is upgraded, with the warning, and keeps them.
     data = _written_at_0_3()
     star_list = data["star_lists"][0]
-    star_list["observer"] = "x" * 7
-    star_list["refframe"] = "x" * 15
-    star_list["photometry_software"] = ["x" * 63]
-    star_list["staritems"] = [star_list["staritems"][1]] * 100_000
+    for name, limit in _0_4_MAX_STRING_LENGTHS.items():
+        star_list[name] = "x" * limit
+    star_list["photometry_software"] = ["x" * _0_4_MAX_PHOTOMETRY_SOFTWARE_ENTRY]
+    star_list["staritems"] = [star_list["staritems"][1]] * _0_4_MAX_STARITEMS
 
     with pytest.warns(SchemaMigrationWarning):
         result = StarListSet.model_validate(data)
 
     upgraded = result.star_lists[0]
-    assert upgraded.observer == "x" * 7
-    assert upgraded.refframe == "x" * 15
-    assert upgraded.photometry_software == ["x" * 63]
+    for name, limit in _0_4_MAX_STRING_LENGTHS.items():
+        assert getattr(upgraded, name) == "x" * limit
+    assert upgraded.photometry_software == ["x" * _0_4_MAX_PHOTOMETRY_SOFTWARE_ENTRY]
     assert len(upgraded.staritems) == 100_000
+
+
+def test_0_3_star_items_given_as_a_generator_are_all_upgraded():
+    # A 0.3 dict built in Python may hold its star items as a generator,
+    # which can be read only once; the model reads it once for both the
+    # frozen 0.3 validation and the migration, so no star item is lost.
+    data = _written_at_0_3()
+    items = data["star_lists"][0]["staritems"][:2]
+    data["star_lists"][0]["staritems"] = (item for item in items)
+
+    with pytest.warns(SchemaMigrationWarning):
+        result = StarListSet.model_validate(data)
+
+    assert len(result.star_lists[0].staritems) == 2
+
+
+@pytest.mark.parametrize(
+    "model, field_name",
+    [
+        (_aavso_starlist_v0_3.StarItem, "fwhm"),
+        (_aavso_starlist_v0_3.StarList, "bias"),
+    ],
+    ids=["StarItem.fwhm", "StarList.bias"],
+)
+def test_frozen_0_3_fields_reject_infinity(model, field_name):
+    # The frozen 0.3 fwhm and bias refuse infinity on their own, as 0.3.2
+    # did; that per-field setting does not show in the JSON schema, so the
+    # archive test cannot notice if it is dropped from the frozen module.
+    star_list = _written_at_0_3()["star_lists"][0]
+    record = star_list if model is _aavso_starlist_v0_3.StarList else star_list["staritems"][0]
+    data = {**record, field_name: float("inf")}
+
+    with pytest.raises(ValidationError, match="finite number") as excinfo:
+        model.model_validate(data)
+
+    assert excinfo.value.errors()[0]["loc"] == (field_name,)

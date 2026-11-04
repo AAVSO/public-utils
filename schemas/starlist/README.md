@@ -96,6 +96,12 @@ package-version strings such as `0.0.1.dev451+gde1568f`, or a version below
 0.2.0 such as `0.0.1`).
 Crossing a generation boundary requires a migration.
 
+From 0.4.0 the models forbid keys they do not define (`additionalProperties:
+false` in the schema), reject infinity and NaN in every float field,
+require `stack` to be 1 or more or `null`, and cap the length of each string
+field and the number of star items (see `schema_definition.json` for the
+limits).
+
 Every generation that has been left behind keeps a *frozen* copy of its models
 in its own module (`_aavso_starlist_legacy.py` for the legacy generation,
 `_aavso_starlist_v0_2.py` for 0.2, `_aavso_starlist_v0_3.py` for 0.3), so
@@ -188,30 +194,14 @@ Use the standard pydantic methods. `StarListSet.model_validate_json(text)`,
 file from an older generation goes through three steps:
 
 1. It is validated against the frozen model of its own generation: is this
-   file valid for the schema version it states?
+   file valid for the schema version it states? Data built in Python (tuples,
+   other mappings, model instances, enum members, generators) is first
+   converted, once, to plain JSON data.
 2. It is upgraded to the current schema version with `upgrade()`, as a plain
-   dict, one generation at a time. Data built in Python (tuples, other
-   mappings, model instances, enum members) is first converted to plain JSON
-   data. Nothing is validated between migrations.
+   dict, one generation at a time. Nothing is validated between migrations.
 3. The result is validated against the current model.
 
 A file already in the current generation only gets step 3.
-
-A migration may refuse a file the new generation cannot hold. The 0.3 to 0.4
-migration drops keys the 0.3 schema did not define (the 0.3 reader ignored
-them) and turns a `stack` of 0 or less into `null`, but a float that is
-infinite or NaN, a string longer than 0.4.0 allows, or a star list of more
-than 100000 star items has no 0.4 form: the migration raises `ValueError`
-naming the field. Through `StarListSet` that arrives as the usual pydantic
-`ValidationError`; `upgrade()` raises the `ValueError` itself. That is a
-problem with the file, not with the package, so it is not a
-`MigrationResultError`.
-
-From 0.4.0 the models forbid keys they do not define (`additionalProperties:
-false` in the schema), reject infinity and NaN in every float field,
-require `stack` to be 1 or more or `null`, and cap the length of each string
-field and the number of star items (see `schema_definition.json` for the
-limits).
 
 ```python
 from pathlib import Path
@@ -250,7 +240,15 @@ derived data; the submitted file remains the record.
 
 A file that is not valid for the schema version it states fails step 1 with the
 usual pydantic `ValidationError`; that is a problem with the file. So does a
-file a migration refuses (step 2).
+file a migration refuses (step 2) because the new generation cannot hold it.
+The 0.3 to 0.4 migration drops keys the 0.3 schema did not define (the 0.3
+reader ignored them) and turns a `stack` of 0 or less into `null`, but a float
+that is infinite or NaN, a string longer than 0.4.0 allows, or a star list of
+more than 100000 star items has no 0.4 form: the migration raises `ValueError`
+naming the field, and `upgrade()` called directly raises that `ValueError`
+itself. The field is named in the error message, not in pydantic's `loc`
+(which is empty), and only the first such problem is reported. Either way it
+is not a `MigrationResultError`, since the package is not at fault.
 
 Three errors are specific to versioning. All derive from `SchemaVersionError`,
 which is deliberately not a `ValueError`, so pydantic does not wrap them in a
