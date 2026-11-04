@@ -313,6 +313,24 @@
           "type": "number",
           "unit": "e-/adu"
         },
+        "bias": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Bias (offset) level of this frame in adu: the value `bkgd_count` would hold with no photon arrivals and no dark current, in the pixel values the counts in this star list were measured from. For a frame the vendor has dark-subtracted and then offset to keep pixel values positive, this is that fixed offset. For a raw frame with no dark, flat or bias correction, it is the mean level of a bias frame. It is 0 if the bias or offset has already been subtracted from the pixel values. For a star list measured on a stacked image it is the level in that image: the sum of the per-frame offsets for a summed stack, the per-frame offset for a mean or median stack. None if not available.",
+          "examples": [
+            1000.0
+          ],
+          "title": "Bias Level",
+          "unit": "adu"
+        },
         "fwhm": {
           "description": "Typical full width at half maximum of the stars in this image",
           "examples": [
@@ -410,9 +428,9 @@
     "schema_version": {
       "description": "The version of this schema that the file was written against, assigned by AAVSO",
       "examples": [
-        "0.3.1"
+        "0.3.2"
       ],
-      "pattern": "^(0\\.3\\.0|0\\.3\\.1)$",
+      "pattern": "^(0\\.3\\.0|0\\.3\\.1|0\\.3\\.2)$",
       "title": "Starlist Schema Version",
       "type": "string",
       "unit": "none"
@@ -436,5 +454,5 @@
   ],
   "title": "StarListSet",
   "type": "object",
-  "version": "0.3.1"
+  "version": "0.3.2"
 }
