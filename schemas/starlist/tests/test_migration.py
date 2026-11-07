@@ -1901,3 +1901,5 @@ def test_frozen_0_3_fields_reject_infinity(model, field_name):
         model.model_validate(data)
 
     assert excinfo.value.errors()[0]["loc"] == (field_name,)
+
+

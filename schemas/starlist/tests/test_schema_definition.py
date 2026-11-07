@@ -4,7 +4,7 @@ from typing import Annotated, Optional
 
 import numpy as np
 import pytest
-from _helpers import float_fields
+from _helpers import float_fields, flooded
 from astropy.table import MaskedColumn, Table
 from pydantic import ValidationError
 
@@ -381,6 +381,36 @@ def test_bias_markdown_row():
     assert cells[2] == r"float \| None"
     assert cells[3] == "adu"
     assert cells[5] == "1000.0 |"
+
+
+@pytest.mark.parametrize(
+    "klass, field_name",
+    [
+        pytest.param(klass, field_name, id=f"{klass.__name__}-{field_name}")
+        for klass, field_name in [
+            (StarItem, "tot_count"),
+            (StarItem, "count_err"),
+            (StarItem, "bkgd_count"),
+            (StarItem, "peak_count"),
+            (StarList, "bias"),
+            (StarList, "largest_usable_adu_value"),
+        ]
+    ],
+)
+def test_levels_in_adu_share_one_unit(klass, field_name):
+    # Every field that holds a count or a level in adu states the same unit,
+    # plain "adu", so that bias and bkgd_count, which are compared, agree.
+    # bkgd_count is per pixel; its description says so in words.
+    assert klass.model_fields[field_name].json_schema_extra["unit"] == "adu"
+
+
+def test_bkgd_count_markdown_row():
+    # The markdown table writes bkgd_count with the unit adu and a
+    # description that says the level is per pixel.
+    row = _markdown_row(StarItem, "bkgd_count")
+
+    assert row["Unit"] == "adu"
+    assert row["Description"] == "Background count level per pixel in the vicinity of the star"
 
 
 @pytest.mark.parametrize("bias", [1000.0, 0.0, None], ids=["number", "zero", "none"])
@@ -1169,3 +1199,26 @@ def test_cli_bare_path_is_not_a_command(tmp_path, mocker):
     assert info.value.code == 2
     assert path.read_text() == "keep me"
     assert list(tmp_path.iterdir()) == [path]
+
+
+# Each list field of the current models, with the path to it in a star list
+# set and an entry that is not valid for it.
+BAD_LIST_ENTRIES = [
+    pytest.param(("star_lists",), {}, id="star_lists"),
+    pytest.param(("star_lists", 0, "staritems"), {}, id="staritems"),
+    pytest.param(("star_lists", 0, "photometry_software"), 1, id="photometry_software"),
+]
+
+
+@pytest.mark.parametrize("path, entry", BAD_LIST_ENTRIES)
+def test_validation_stops_at_the_first_bad_entry_of_a_list_field(path, entry):
+    # A list field full of bad entries reports only its first one (fail_fast),
+    # so a malformed file with many entries gives a short error, as cheaply
+    # as one with a single bad entry.
+    with pytest.raises(ValidationError) as one:
+        StarListSet.model_validate(flooded(_one_star_set_data(), path, entry, 1))
+    with pytest.raises(ValidationError) as many:
+        StarListSet.model_validate(flooded(_one_star_set_data(), path, entry, 10_000))
+
+    assert many.value.error_count() == one.value.error_count()
+    assert {error["loc"][: len(path) + 1] for error in many.value.errors()} == {(*path, 0)}

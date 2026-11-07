@@ -37,13 +37,13 @@ except ImportError:  # pragma: no cover - source tree without the generated file
 # deliberately independent of the package version above: bump it whenever the
 # generated schema under aavso_starlist_schema_data/ changes. The archive test
 # fails if the generated schema changes without bumping this constant.
-SCHEMA_VERSION = "0.4.0"
+SCHEMA_VERSION = "0.4.1"
 
 # Every released schema version from 0.2.0 on, oldest first; add each new
 # SCHEMA_VERSION here. Listed in the code, rather than read from the archive
 # folders, so the versions this reader accepts never depend on the filesystem.
 # The archive test fails if this differs from the archived versions.
-_RELEASED_VERSIONS = ("0.2.0", "0.2.1", "0.3.0", "0.3.1", "0.3.2", "0.4.0")
+_RELEASED_VERSIONS = ("0.2.0", "0.2.1", "0.3.0", "0.3.1", "0.3.2", "0.4.0", "0.4.1")
 
 __all__ = [
     "AAVSOFilters",
@@ -275,8 +275,8 @@ class StarItem(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
         float,
         Field(
             title="Background counts",
-            description="Background count level in the vicinity of the star",
-            json_schema_extra=dict(unit="adu / pixel"),
+            description="Background count level per pixel in the vicinity of the star",
+            json_schema_extra=dict(unit="adu"),
             examples=[1209.45]
         )
     ]
@@ -535,6 +535,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     photometry_software: Annotated[
         list[Annotated[str, Field(min_length=1, max_length=63)]],
         Field(
+            fail_fast=True,
             min_length=1,
             title="Photometry Software",
             description=(
@@ -562,6 +563,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     staritems: Annotated[
         list[StarItem],
         Field(
+            fail_fast=True,
             max_length=100_000,
             title="Star Items",
             description="List of stars detected in the image",
@@ -1342,6 +1344,12 @@ def validate_as_written(data):
     current model and, like any `StarListSet`, states `SCHEMA_VERSION`, even
     if the file stated an older version of the generation.
 
+    It does not apply anything a later version added: a 0.3.x file may hold
+    infinity or NaN, strings of any length, more than 100000 star items or a
+    ``stack`` of 0, and ``model_dump(mode="json")`` of the result emits them
+    as they are. To hold every file to the current schema, read it with
+    ``StarListSet.model_validate`` or `validate_file`, which upgrade it.
+
     A legacy file without a ``schema_version`` comes back with the legacy
     model's frozen default in that field, a version the file never stated. To
     pass the result on, use ``model_dump(exclude_unset=True)``, or validate
@@ -1375,9 +1383,11 @@ def validate_file(path, as_written=False):
         byte order mark.
     as_written : bool, optional
         If ``True``, validate the file against the schema of the version it
-        states, without upgrading it; see `validate_as_written`. Default is
-        ``False``: validate the file and upgrade it to the current schema
-        version, as `StarListSet` does.
+        states, without upgrading it; see `validate_as_written`. That does
+        not apply anything a later version added (a 0.3.x file may hold
+        infinity or NaN, for one), so to hold every file to the current
+        schema leave this ``False``. Default is ``False``: validate the file
+        and upgrade it to the current schema version, as `StarListSet` does.
 
     Returns
     -------
@@ -1704,6 +1714,7 @@ class StarListSet(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin
     star_lists: Annotated[
         list[StarList],
         Field(
+            fail_fast=True,
             title="Star List Set",
             description="List of star lists",
             json_schema_extra=dict(unit="none"),
@@ -1880,7 +1891,10 @@ def _report_validation(path, as_written=False):
     path : str
         The starlist file, as given on the command line.
     as_written : bool, optional
-        Passed on to `validate_file`. Default is ``False``.
+        If ``True``, validate the file against the schema of the version it
+        states, without upgrading it (see `validate_file`). Only the limits
+        of that version's generation apply, so an older file may pass that
+        the current schema would refuse.
 
     Raises
     ------

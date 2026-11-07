@@ -53,9 +53,10 @@ from aavso_starlist_schema import validate_file
 # older (with a SchemaMigrationWarning); returns a StarListSet
 star_list_set = validate_file("starlists.json")
 
-# Validate the file against the schema of the version it states, without
-# upgrading it; returns the model of that version, no warning (a file from an
-# older release of the current generation is read as the current version)
+# Validate the file against the schema of its own generation, without
+# upgrading it; returns that generation's model, no warning (a file from an
+# older release of the current generation is read as the current version).
+# Only that generation's limits apply; see "Reading starlist files".
 as_written = validate_file("starlists.json", as_written=True)
 ```
 
@@ -75,7 +76,8 @@ aavso-starlist-schema validate <file>
 
 # Validate against the schema version the file states, without upgrading it;
 # a file from an older release of the current generation is read as the
-# current version
+# current version; only the limits of its generation apply, so an older file
+# may pass that the current schema would refuse
 aavso-starlist-schema validate <file> --as-written
 
 # Write the JSON schema to <path> with its suffix replaced by .json
@@ -120,7 +122,7 @@ legacy file and upgraded with a warning, see below). The generated
 
 | Change | From 1.0.0 on | While 0.y.z |
 | --- | --- | --- |
-| Description/docs only | patch | patch |
+| Description, a unit written another way with the same meaning, or other annotation only | patch | patch |
 | New optional field | minor | patch |
 | New required field, removal, changed meaning | major | minor |
 
@@ -275,6 +277,13 @@ The first two steps are also available on their own:
   input is not modified. It does not validate, and it passes the values
   inside to the migrations as given, without converting them to plain data.
 
+`validate_as_written` answers only whether a file is valid for the generation
+of the version it claims. It does not apply anything a later version added: a 0.3.x file may
+hold infinity or NaN, strings of any length, more than 100000 star items or a
+`stack` of 0, and `model_dump(mode="json")` of the result emits them as they
+are. To hold every file to the current schema, read it with
+`StarListSet.model_validate` or `validate_file(path)`, which upgrade it.
+
 A file from an older version of the current generation needs no migration; it
 is read without a warning, and the object states the current version.
 
@@ -292,12 +301,16 @@ original version, the new version and what changed. The upgraded object is
 derived data; the submitted file remains the record.
 
 A file that is not valid for the schema version it states fails step 1 with the
-usual pydantic `ValidationError`; that is a problem with the file. A file a
-migration refuses in step 2, because the new generation cannot hold it, raises
-the same `ValidationError`. The 0.3 to 0.4 migration drops keys the 0.3
-schema did not define (the 0.3 reader ignored them) and turns a `stack` of 0
-or less into `null`, but a float that is infinite or NaN, a string longer than
-0.4.0 allows, or a star list of more than 100000 star items has no 0.4 form:
+usual pydantic `ValidationError`; that is a problem with the file. For a file
+of the current generation, validation stops at the first bad entry of a list
+field, so it reports its first bad star item, star list or software entry
+rather than all of them; a file of an older generation is checked against its
+frozen model, which reports every bad entry. A file a migration refuses in
+step 2, because the new generation cannot hold it, raises the same
+`ValidationError`. The 0.3 to 0.4 migration drops keys the 0.3 schema did not
+define (the 0.3 reader ignored them) and turns a `stack` of 0 or less into
+`null`, but a float that is infinite or NaN, a string longer than 0.4.0
+allows, or a star list of more than 100000 star items has no 0.4 form:
 the migration raises `ValueError` naming the field, and `upgrade()` called
 directly raises that `ValueError` itself. The field is named in the error
 message, not in pydantic's `loc` (which is empty), and only the first such
