@@ -1371,6 +1371,12 @@ def validate_as_written(data):
     current model and, like any `StarListSet`, states `SCHEMA_VERSION`, even
     if the file stated an older version of the generation.
 
+    It does not apply anything a later version added: a 0.3.x file may hold
+    infinity or NaN, strings of any length, more than 100000 star items or a
+    ``stack`` of 0, and ``model_dump(mode="json")`` of the result emits them
+    as they are. To hold every file to the current schema, read it with
+    ``StarListSet.model_validate`` or `validate_file`, which upgrade it.
+
     A legacy file without a ``schema_version`` comes back with the legacy
     model's frozen default in that field, a version the file never stated. To
     pass the result on, use ``model_dump(exclude_unset=True)``, or validate
@@ -1405,9 +1411,11 @@ def validate_file(path, as_written=False):
         byte order mark.
     as_written : bool, optional
         If ``True``, validate the file against the schema of the version it
-        states, without upgrading it; see `validate_as_written`. Default is
-        ``False``: validate the file and upgrade it to the current schema
-        version, as `StarListSet` does.
+        states, without upgrading it; see `validate_as_written`. That does
+        not apply anything a later version added (a 0.3.x file may hold
+        infinity or NaN, for one), so to hold every file to the current
+        schema leave this ``False``. Default is ``False``: validate the file
+        and upgrade it to the current schema version, as `StarListSet` does.
 
     Returns
     -------
@@ -2244,7 +2252,10 @@ def _report_validation(path, as_written=False):
     path : str
         The starlist file, as given on the command line.
     as_written : bool, optional
-        Passed on to `validate_file`. Default is ``False``.
+        If ``True``, validate the file against the schema of the version it
+        states, without upgrading it (see `validate_file`). Only the limits
+        of that version's generation apply, so an older file may pass that
+        the current schema would refuse.
 
     Raises
     ------
