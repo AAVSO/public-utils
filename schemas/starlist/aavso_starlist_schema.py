@@ -2120,11 +2120,15 @@ class StarListSet(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin
         Raises
         ------
         pydantic.ValidationError
-            If the data is not valid for the schema version it states,
-            reading the value under one of its list fields fails (type
-            ``iteration_error``, located at the field), or a migration
-            refuses it because the current generation cannot hold a value in
-            it (a `ValueError` from the migration, which pydantic wraps).
+            If the data is not valid for the schema version it states; if
+            the value under one of its list fields cannot be read (see
+            `_read_list`: type ``iteration_error`` at the entry that could
+            not be read, ``list_type`` at the field if the value cannot be
+            iterated at all, or ``too_long`` at the field if a value without
+            a length holds more entries than the current model allows); or
+            if a migration refuses it because the current generation cannot
+            hold a value in it (a `ValueError` from the migration, which
+            pydantic wraps).
         MigrationResultError
             If older data was valid as written but the upgraded data is not
             valid; this is a bug in a migration.

@@ -2148,14 +2148,36 @@ def test_frozen_set_of_an_older_generation_is_upgraded_like_its_dict(generation)
 def test_validate_as_written_reads_a_frozen_set_as_its_fields(generation):
     # validate_as_written reads a frozen StarListSet of an older generation
     # as the fields it was given, like StarListSet does, and validates them
-    # against the frozen model of that generation, without a warning.
+    # against the frozen model of that generation, without a warning. The
+    # result is a new instance, not the one given back.
     data, _ = _before_after_pair(generation)
     instance = _MIGRATIONS[generation].model.model_validate(copy.deepcopy(data))
 
     result = validate_as_written(instance)
 
     assert isinstance(result, _MIGRATIONS[generation].model)
+    assert result is not instance
     assert result == validate_as_written(data)
+
+
+@pytest.mark.parametrize("generation", OLDER_GENERATIONS)
+def test_validate_as_written_revalidates_a_changed_frozen_set(generation):
+    # The frozen models do not revalidate their own instances, so a frozen
+    # StarListSet changed after it was built may hold anything;
+    # validate_as_written reads it as its fields and validates them, so an
+    # int as observer is reported as string_type at the field. Returning
+    # the instance as given would pass the previous test too; this one
+    # tells the two apart.
+    data, _ = _before_after_pair(generation)
+    instance = _MIGRATIONS[generation].model.model_validate(copy.deepcopy(data))
+    instance.star_lists[0].observer = 12345
+
+    with pytest.raises(ValidationError) as excinfo:
+        validate_as_written(instance)
+
+    [error] = excinfo.value.errors()
+    assert error["type"] == "string_type"
+    assert error["loc"] == ("star_lists", 0, "observer")
 
 
 def test_migration_warning_names_the_keys_a_legacy_file_loses():
