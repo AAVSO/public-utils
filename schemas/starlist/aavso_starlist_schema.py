@@ -1046,7 +1046,8 @@ def validate_file(path, as_written=False):
     Parameters
     ----------
     path : str or pathlib.Path
-        The starlist file, JSON text encoded as UTF-8.
+        The starlist file, JSON text encoded as UTF-8, with or without a
+        byte order mark.
     as_written : bool, optional
         If ``True``, validate the file against the schema of the version it
         states, without upgrading it; see `validate_as_written`. Default is
@@ -1088,7 +1089,9 @@ def validate_file(path, as_written=False):
         If the file was written against an older schema and was upgraded.
         Never with ``as_written=True``.
     """
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    # utf-8-sig is UTF-8 that also drops a leading byte order mark, which
+    # Windows editors commonly write; RFC 8259 lets a JSON parser ignore it.
+    data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
     if as_written:
         return validate_as_written(data)
     return StarListSet.model_validate(data)

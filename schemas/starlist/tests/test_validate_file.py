@@ -388,6 +388,18 @@ def test_validate_command_unreadable_file_exits_1(tmp_path, capsys):
     )
 
 
+def test_validate_file_accepts_a_utf8_byte_order_mark(tmp_path):
+    # Windows editors often prefix UTF-8 with a BOM; the file is still the
+    # same valid starlist, in both modes.
+    path = tmp_path / "bom.json"
+    path.write_bytes(b"\xef\xbb\xbf" + json.dumps(_current_data()).encode("utf-8"))
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert validate_file(path).schema_version == SCHEMA_VERSION
+        assert validate_file(path, as_written=True).schema_version == SCHEMA_VERSION
+
+
 def test_validate_command_not_utf8_exits_1(tmp_path, capsys):
     # Bytes that are not UTF-8 never reach the JSON parser; the decoding
     # error is reported in its place.
