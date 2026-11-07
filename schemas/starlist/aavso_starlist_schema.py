@@ -1469,7 +1469,10 @@ def write_schema(filename, markdown=False, force=False):
     else:
         content = generate_star_list_set_schema()
 
-    with p.open("w") as f:
+    # The committed reference files are UTF-8 with LF line endings, and the
+    # pre-commit hook regenerates them on any platform: fix both so the
+    # output is byte-identical everywhere.
+    with p.open("w", encoding="utf-8", newline="\n") as f:
         f.write(content)
 
 

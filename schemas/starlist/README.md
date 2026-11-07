@@ -1,10 +1,10 @@
 # AAVSO Starlist Schema
 
 ## Schema description for humans
-There is a [human-readable description of the schema](https://github.com/AAVSO/public-utils/blob/main/schemas/starlist/aavso_starlist_schema_data/schema_definition.md) available. In brief, a star file contains a single StarListSet, corresponding to a single image, which contains one or more `StarList`s. Eacah StarList contains one or more `StarItem`s, which describe the stars in the image, along with metadata about the image and star list.
+There is a [human-readable description of the schema](https://github.com/AAVSO/public-utils/blob/main/schemas/starlist/aavso_starlist_schema_data/schema_definition.md) available. In brief, a star file contains a single StarListSet, corresponding to one or more images, which contains one or more `StarList`s. Each StarList contains one or more `StarItem`s, which describe the stars in the image, along with metadata about the image and star list.
 
 ## Schema description for computers
-The JSON schemas that can be used to validate startlists in a number of programming languages are in the [schema definition folder](https://github.com/AAVSO/public-utils/tree/main/schemas/starlist/aavso_starlist_schema_data). The current version is the one with the highest version number in the filename; a duplicate of it is also in the folder, called [`schema_definition.json`](https://github.com/AAVSO/public-utils/blob/main/schemas/starlist/aavso_starlist_schema_data/schema_definition.json).
+The JSON schemas that can be used to validate starlists in a number of programming languages are in the [schema definition folder](https://github.com/AAVSO/public-utils/tree/main/schemas/starlist/aavso_starlist_schema_data). Each released version is archived in its own `v<version>/` folder (for example `v0.3.1/schema_definition.json`); the current version is the one in the highest-numbered folder, and a duplicate of it is also at the top of the folder, called [`schema_definition.json`](https://github.com/AAVSO/public-utils/blob/main/schemas/starlist/aavso_starlist_schema_data/schema_definition.json).
 
 ## Schema tools for Python
 

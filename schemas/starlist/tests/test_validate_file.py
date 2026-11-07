@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import subprocess
 import warnings
@@ -328,12 +329,16 @@ def test_cli_exit_status_for_an_invalid_file(invalid_file, mocker, capsys):
     assert "observer" in capsys.readouterr().err
 
 
-@pytest.mark.skipif(
-    shutil.which("aavso-starlist-schema") is None,
-    reason="console script not installed in this environment",
-)
 def test_console_script_validates_end_to_end(current_file, invalid_file):
     # The installed script, run as a subprocess: exit status and streams.
+    # Without the script this is a skip locally, but a failure in CI, where
+    # the project must be installed: a silent skip would hide a broken entry
+    # point.
+    if shutil.which("aavso-starlist-schema") is None:
+        if os.environ.get("CI"):
+            pytest.fail("console script not installed; CI must install the project")
+        pytest.skip("console script not installed in this environment")
+
     valid = subprocess.run(
         ["aavso-starlist-schema", "validate", str(current_file)],
         capture_output=True,
