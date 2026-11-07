@@ -66,9 +66,9 @@ include = [
 ]
 
 [tool.poe.tasks]
-gen-json.cmd = "aavso-starlist-schema aavso_starlist_schema_data/schema_definition"
+gen-json.cmd = "aavso-starlist-schema write-schema aavso_starlist_schema_data/schema_definition --force"
 gen-json.help = "Regenerate the reference schema_definition.json"
-gen-markdown.cmd = "aavso-starlist-schema aavso_starlist_schema_data/schema_definition --markdown"
+gen-markdown.cmd = "aavso-starlist-schema write-schema aavso_starlist_schema_data/schema_definition --markdown --force"
 gen-markdown.help = "Regenerate the reference schema_definition.md"
 generate.sequence = ["gen-json", "gen-markdown"]
 generate.help = "Regenerate both reference schema files under aavso_starlist_schema_data/"

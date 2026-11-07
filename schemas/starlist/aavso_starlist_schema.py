@@ -9,6 +9,7 @@ point.
 import copy
 import json
 import re
+import sys
 import warnings
 from collections.abc import Callable, Mapping
 from enum import StrEnum
@@ -49,12 +50,13 @@ __all__ = [
     "StarListSet",
     "generate_starlist_schema",
     "generate_star_list_set_schema",
-    "main",
+    "write_schema",
     "cli",
     "DATA_DIR",
     "SCHEMA_VERSION",
     "upgrade",
     "validate_as_written",
+    "validate_file",
     "SchemaVersionError",
     "NewerSchemaVersionError",
     "UnsupportedSchemaVersionError",
@@ -1026,6 +1028,64 @@ def validate_as_written(data):
     return StarListSet.model_validate(data)
 
 
+def validate_file(path, as_written=False):
+    """
+    Validate a starlist file against the schema.
+
+    This is the file-level convenience for a user who does not want to deal
+    with pydantic: it reads the file, parses it and validates it the way
+    `StarListSet` does, or, with ``as_written``, the way `validate_as_written`
+    does.
+
+    Parameters
+    ----------
+    path : str or pathlib.Path
+        The starlist file, JSON text encoded as UTF-8.
+    as_written : bool, optional
+        If ``True``, validate the file against the schema of the version it
+        states, without upgrading it; see `validate_as_written`. Default is
+        ``False``: validate the file and upgrade it to the current schema
+        version, as `StarListSet` does.
+
+    Returns
+    -------
+    pydantic.BaseModel
+        By default a `StarListSet` at the current schema version, upgraded if
+        the file is from an older generation. With ``as_written=True``, what
+        `validate_as_written` returns: a `StarListSet` if the file is in the
+        current generation, otherwise an instance of the frozen model of its
+        own generation, stating the file's own version.
+
+    Raises
+    ------
+    FileNotFoundError
+        If there is no file at ``path``.
+    json.JSONDecodeError
+        If the file is not valid JSON.
+    pydantic.ValidationError
+        If the file does not match the schema of its own generation.
+    MigrationResultError
+        If the file was valid for its own generation but not after being
+        upgraded; a bug in a migration, not in the file. Never raised with
+        ``as_written=True``.
+    NewerSchemaVersionError
+        If the file was written against a newer schema than this reader.
+    UnsupportedSchemaVersionError
+        If the version is null, cannot be interpreted, is 0.2.0 or later but
+        was never released, or has no migration path.
+
+    Warns
+    -----
+    SchemaMigrationWarning
+        If the file was written against an older schema and was upgraded.
+        Never with ``as_written=True``.
+    """
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if as_written:
+        return validate_as_written(data)
+    return StarListSet.model_validate(data)
+
+
 def _to_plain(value):
     """
     Convert data built in Python to the plain form JSON text would give.
@@ -1304,21 +1364,105 @@ def _generate_markdown():
     )
 
 
-def main(filename, markdown=False):
+def _report_validation(path, as_written=False):
     """
-    Write the `StarListSet` schema to a file, as JSON or as a markdown table.
+    Validate a starlist file and report the result on the console.
+
+    This is the ``validate`` command of the ``aavso-starlist-schema`` console
+    script. It only reads the file; nothing is written.
+
+    Parameters
+    ----------
+    path : str
+        The starlist file, as given on the command line.
+    as_written : bool, optional
+        Passed on to `validate_file`. Default is ``False``.
+
+    Raises
+    ------
+    SystemExit
+        With status 1 if the file is missing, is not JSON, is not valid for
+        its schema version or cannot be upgraded. The reason is written to
+        stderr first, so a shell script can rely on the exit status alone.
+
+    Notes
+    -----
+    On success one line goes to stdout, ``<path>: valid (schema version
+    <version>)``, where ``<version>`` is the one the validated model states.
+    If the file was upgraded, the `SchemaMigrationWarning` message follows on
+    a second line, instead of being issued as a warning.
+    """
+    try:
+        with warnings.catch_warnings(record=True) as caught:
+            # Record the migration warning even where a warnings filter would
+            # turn it into an error, for instance under pytest.
+            warnings.simplefilter("always", SchemaMigrationWarning)
+            model = validate_file(path, as_written=as_written)
+    except FileNotFoundError:
+        problem = "no such file"
+    except json.JSONDecodeError as error:
+        problem = f"not valid JSON: {error}"
+    except ValidationError as error:
+        problem = str(error)
+    except MigrationResultError as error:
+        problem = f"upgrading the file gave an invalid result: {error}"
+    except NewerSchemaVersionError as error:
+        problem = f"newer schema version: {error}"
+    except UnsupportedSchemaVersionError as error:
+        problem = f"unsupported schema version: {error}"
+    else:
+        print(f"{path}: valid (schema version {model.schema_version})")
+        for warning in caught:
+            if issubclass(warning.category, SchemaMigrationWarning):
+                print(warning.message)
+            else:
+                # Not ours to report; let it through as the warning it was.
+                warnings.warn_explicit(
+                    warning.message, warning.category, warning.filename, warning.lineno
+                )
+        return
+
+    print(f"{path}: invalid\n{problem}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def write_schema(filename, markdown=False, force=False):
+    """
+    Write the `StarListSet` schema to a file.
+
+    This is the ``write-schema`` command of the ``aavso-starlist-schema``
+    console script. To check a starlist file use the ``validate`` command
+    instead; this command never reads the file it is given.
 
     Parameters
     ----------
     filename : str
-        Output path. Its suffix is replaced with ``.json`` or ``.md``.
+        Output path; its suffix is replaced with ``.json`` or ``.md``.
     markdown : bool, optional
         If ``True``, write the markdown table instead of the JSON schema.
         Default is ``False``.
+    force : bool, optional
+        If ``True``, overwrite the output file if it already exists. Default
+        is ``False``: an existing file is left alone and the command fails.
+
+    Raises
+    ------
+    SystemExit
+        With status 1 if the output file exists and ``force`` is ``False``;
+        the reason is written to stderr.
     """
     extension = ".md" if markdown else ".json"
     # Make sure the path has the right suffix
     p = Path(filename).with_suffix(extension)
+
+    if p.exists() and not force:
+        # Most likely the user meant `validate`, or forgot that the path is
+        # the output: never write over a file that is there unless told to.
+        print(
+            f"{p}: exists; not overwriting it (use --force to replace it)",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
 
     if markdown:
         content = _generate_markdown()
@@ -1331,15 +1475,17 @@ def main(filename, markdown=False):
 
 def cli():
     """
-    Run `main` as a command line program.
+    Run the ``aavso-starlist-schema`` console script.
 
-    This is the ``aavso-starlist-schema`` console script; argument parsing is
+    The script has two commands, ``validate <file>`` and ``write-schema
+    <path>``; the first only reads its file and the second only writes to
+    its path, so neither can be mistaken for the other. Argument parsing is
     handled by Fire, which is imported lazily so that importing the module
     does not require it.
     """
     import fire  # lazy import: keep `import aavso_starlist_schema` fire-free
 
-    fire.Fire(main)
+    fire.Fire({"validate": _report_validation, "write-schema": write_schema})
 
 
 if __name__ == "__main__":

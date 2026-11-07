@@ -20,7 +20,7 @@ from aavso_starlist_schema import (
     cli,
     generate_star_list_set_schema,
     generate_starlist_schema,
-    main,
+    write_schema,
 )
 
 
@@ -590,10 +590,11 @@ def test_generate_starlist_schema_is_valid_json():
     assert "staritems" in schema["properties"]
 
 
-def test_main_writes_json(tmp_path):
-    # main() should write the StarListSet JSON schema, adding the .json suffix.
+def test_write_schema_writes_json(tmp_path):
+    # write_schema() should write the StarListSet JSON schema, adding the
+    # .json suffix.
     out = tmp_path / "schema"
-    main(str(out))
+    write_schema(str(out))
 
     json_path = out.with_suffix(".json")
     assert json_path.exists()
@@ -601,26 +602,99 @@ def test_main_writes_json(tmp_path):
     assert json.loads(generate_star_list_set_schema()) == written
 
 
-def test_main_writes_markdown(tmp_path):
-    # main(markdown=True) should write the markdown table, adding the .md suffix.
+def test_write_schema_writes_markdown(tmp_path):
+    # write_schema(markdown=True) should write the markdown table, adding the
+    # .md suffix.
     out = tmp_path / "schema"
-    main(str(out), markdown=True)
+    write_schema(str(out), markdown=True)
 
     md_path = out.with_suffix(".md")
     assert md_path.exists()
     assert md_path.read_text() == _generate_markdown()
 
 
+@pytest.mark.parametrize("markdown", [False, True])
+def test_write_schema_refuses_to_overwrite(tmp_path, markdown, capsys):
+    # An existing file at the output path is left exactly as it was, the
+    # refusal names the file on stderr and the exit status is 1. This is the
+    # guard against `write-schema starlists.json` typed in place of `validate`.
+    out = tmp_path / ("schema.md" if markdown else "schema.json")
+    out.write_text("keep me")
+
+    with pytest.raises(SystemExit) as info:
+        write_schema(str(out), markdown=markdown)
+
+    assert info.value.code == 1
+    assert out.read_text() == "keep me"
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == f"{out}: exists; not overwriting it (use --force to replace it)\n"
+
+
+def test_write_schema_guard_checks_the_path_after_the_suffix_is_replaced(tmp_path):
+    # The guard applies to the file that would actually be written, not to
+    # the path as given.
+    out = tmp_path / "schema"
+    out.with_suffix(".json").write_text("keep me")
+
+    with pytest.raises(SystemExit):
+        write_schema(str(out))
+    assert out.with_suffix(".json").read_text() == "keep me"
+
+
+def test_write_schema_force_overwrites(tmp_path):
+    out = tmp_path / "schema.json"
+    out.write_text("replace me")
+
+    write_schema(str(out), force=True)
+
+    assert json.loads(out.read_text()) == json.loads(generate_star_list_set_schema())
+
+
 @pytest.mark.parametrize("markdown_flag, suffix", [([], ".json"), (["--markdown"], ".md")])
-def test_cli_writes_file(tmp_path, mocker, markdown_flag, suffix):
-    # The console-script entry point parses argv and writes the requested format.
-    # Fire binds a value following a bool flag to that flag, so the positional
-    # filename comes first and --markdown is a trailing standalone flag.
+def test_cli_write_schema_writes_file(tmp_path, mocker, markdown_flag, suffix):
+    # The console-script entry point parses the write-schema command and
+    # writes the requested format. Fire binds a value following a bool flag
+    # to that flag, so the positional path comes first and --markdown is a
+    # trailing standalone flag.
     out = tmp_path / "from_cli"
-    mocker.patch("sys.argv", ["aavso-starlist-schema", str(out), *markdown_flag])
+    mocker.patch("sys.argv", ["aavso-starlist-schema", "write-schema", str(out), *markdown_flag])
 
     cli()
 
     expected = out.with_suffix(suffix)
     assert expected.exists()
     assert expected.read_text()
+
+
+def test_cli_write_schema_refuses_then_forces(tmp_path, mocker, capsys):
+    # Without --force an existing file survives and the shell sees status 1;
+    # with --force it is replaced.
+    out = tmp_path / "from_cli.json"
+    out.write_text("keep me")
+
+    mocker.patch("sys.argv", ["aavso-starlist-schema", "write-schema", str(out)])
+    with pytest.raises(SystemExit) as info:
+        cli()
+    assert info.value.code == 1
+    assert out.read_text() == "keep me"
+    assert "not overwriting" in capsys.readouterr().err
+
+    mocker.patch("sys.argv", ["aavso-starlist-schema", "write-schema", str(out), "--force"])
+    cli()
+    assert json.loads(out.read_text()) == json.loads(generate_star_list_set_schema())
+
+
+def test_cli_bare_path_is_not_a_command(tmp_path, mocker):
+    # The old form, a path with no command, must not write anything: Fire
+    # rejects an unknown command with status 2 and the file is untouched.
+    path = tmp_path / "starlists.json"
+    path.write_text("keep me")
+
+    mocker.patch("sys.argv", ["aavso-starlist-schema", str(path)])
+    with pytest.raises(SystemExit) as info:
+        cli()
+
+    assert info.value.code == 2
+    assert path.read_text() == "keep me"
+    assert list(tmp_path.iterdir()) == [path]
