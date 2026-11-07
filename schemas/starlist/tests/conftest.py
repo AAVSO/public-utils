@@ -16,3 +16,4 @@ def next_generation_version():
     """
     major, minor, _ = (int(part) for part in SCHEMA_VERSION.split("."))
     return f"0.{minor + 1}.0" if major == 0 else f"{major + 1}.0.0"
+

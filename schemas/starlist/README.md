@@ -89,16 +89,22 @@ legacy file and upgraded with a warning, see below). The generated
 
 A *generation* is a set of versions that need no migration between them: a
 reader reads any released version of its own generation up to its own version,
-and refuses newer ones. The generations are `0.2` for 0.2.z, `0.3` for 0.3.z
-(the current one), and so on, then `1` for 1.y.z, and `legacy` for everything
-before 0.2.0 (files with no `schema_version`,
+and refuses newer ones. The generations are `0.2` for 0.2.z, `0.3` for 0.3.z,
+`0.4` for 0.4.z (the current one), and so on, then `1` for 1.y.z, and
+`legacy` for everything before 0.2.0 (files with no `schema_version`,
 package-version strings such as `0.0.1.dev451+gde1568f`, or a version below
 0.2.0 such as `0.0.1`).
 Crossing a generation boundary requires a migration.
 
+From 0.4.0 the models forbid keys they do not define (`additionalProperties:
+false` in the schema), reject infinity and NaN in every float field,
+require `stack` to be 1 or more or `null`, and cap the length of each string
+field and the number of star items (see `schema_definition.json` for the
+limits).
+
 Every generation that has been left behind keeps a *frozen* copy of its models
 in its own module (`_aavso_starlist_legacy.py` for the legacy generation,
-`_aavso_starlist_v0_2.py` for 0.2), so
+`_aavso_starlist_v0_2.py` for 0.2, `_aavso_starlist_v0_3.py` for 0.3), so
 that an old file can still be validated against the schema it was written for.
 The live models in `aavso_starlist_schema.py` are always the current generation.
 
@@ -149,15 +155,19 @@ generates, archives and runs the tests.
    `aavso_starlist_schema.py` together with the frozen `StarListSet`.
    `_migrate_legacy_to_0_2` is the template for a no-op migration, when no
    data has to change, and `_migrate_0_2_to_0_3` for one that fills in a new
-   required field. A migration is never edited once released. It
+   required field. `_migrate_0_3_to_0_4` is the template for one that drops
+   what the new generation forbids and raises `ValueError`, naming the field,
+   for a file it cannot repair. A migration is never edited once released. It
    takes a dict and returns the migrated dict; `upgrade()` stamps the target
    version on the result. It is given a deep copy, so it may modify its
    argument in place. Through `model_validate_json`, `model_validate` and the
    constructor, the dict holds only plain JSON data (dicts, lists, strings,
    numbers, booleans and `None`): data built in Python is converted once the
-   frozen model has accepted it, keeping keys that model ignores. `upgrade()`
-   called directly validates and converts nothing. The `_Migration` docstring
-   has the details.
+   frozen model has accepted it. The first migration receives only the keys
+   that the frozen model of the file's own generation defines, so every value
+   it sees was validated, and each later one what the migration before it
+   produced. `upgrade()` called directly validates and converts nothing. The
+   `_Migration` docstring has the details.
 6. *New generation only.* Add a `before.json`/`after.json` pair of sample
    files under
    `tests/data/migrations/<old generation>_to_<new generation>/`, e.g.
@@ -186,11 +196,21 @@ Use the standard pydantic methods. `StarListSet.model_validate_json(text)`,
 file from an older generation goes through three steps:
 
 1. It is validated against the frozen model of its own generation: is this
-   file valid for the schema version it states?
-2. It is upgraded to the current schema version with `upgrade()`, as a plain
-   dict, one generation at a time. Data built in Python (tuples, other
-   mappings, model instances, enum members) is first converted to plain JSON
-   data. Nothing is validated between migrations.
+   file valid for the schema version it states? Keys that frozen model does
+   not define are dropped first, at every level, without their values being
+   read: the frozen model ignores them, and nothing downstream may use a
+   value no schema validated, even under a key a later generation defines.
+   One-shot iterators such as generators and list-like containers (deques,
+   arrays and the like) under list fields are first read, once, into lists;
+   under a list of plain values such as `photometry_software` only that one
+   level is read, and its items are validated as given. A model instance of
+   the file's own generation is read as its fields and validated like a
+   dict. Everything else is validated as given.
+2. It is converted to plain JSON data (lists are copied, other mappings
+   become dicts, model instances dicts of their fields, enum members their
+   values; any other value is kept a scalar, even one that is iterable)
+   and upgraded to the current schema version with `upgrade()`, as a plain
+   dict, one generation at a time. Nothing is validated between migrations.
 3. The result is validated against the current model.
 
 A file already in the current generation only gets step 3.
@@ -231,7 +251,17 @@ original version, the new version and what changed. The upgraded object is
 derived data; the submitted file remains the record.
 
 A file that is not valid for the schema version it states fails step 1 with the
-usual pydantic `ValidationError`; that is a problem with the file.
+usual pydantic `ValidationError`; that is a problem with the file. A file a
+migration refuses in step 2, because the new generation cannot hold it, raises
+the same `ValidationError`. The 0.3 to 0.4 migration drops keys the 0.3
+schema did not define (the 0.3 reader ignored them) and turns a `stack` of 0
+or less into `null`, but a float that is infinite or NaN, a string longer than
+0.4.0 allows, or a star list of more than 100000 star items has no 0.4 form:
+the migration raises `ValueError` naming the field, and `upgrade()` called
+directly raises that `ValueError` itself. The field is named in the error
+message, not in pydantic's `loc` (which is empty), and only the first such
+problem is reported. Either way it is not a `MigrationResultError`, since the
+package is not at fault.
 
 Three errors are specific to versioning. All derive from `SchemaVersionError`,
 which is deliberately not a `ValueError`, so pydantic does not wrap them in a

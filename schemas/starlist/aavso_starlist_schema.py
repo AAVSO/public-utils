@@ -8,9 +8,10 @@ point.
 
 import copy
 import json
+import math
 import re
 import warnings
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from enum import StrEnum
 from pathlib import Path
 from types import UnionType
@@ -24,6 +25,7 @@ from pydantic_core import PydanticSerializationError, to_jsonable_python
 
 import _aavso_starlist_legacy  # frozen models of the legacy generation
 import _aavso_starlist_v0_2  # frozen models of the 0.2 generation
+import _aavso_starlist_v0_3  # frozen models of the 0.3 generation
 
 try:
     from _aavso_version import __version__  # top-level sibling, written by hatch-vcs
@@ -34,13 +36,13 @@ except ImportError:  # pragma: no cover - source tree without the generated file
 # deliberately independent of the package version above: bump it whenever the
 # generated schema under aavso_starlist_schema_data/ changes. The archive test
 # fails if the generated schema changes without bumping this constant.
-SCHEMA_VERSION = "0.3.2"
+SCHEMA_VERSION = "0.4.0"
 
 # Every released schema version from 0.2.0 on, oldest first; add each new
 # SCHEMA_VERSION here. Listed in the code, rather than read from the archive
 # folders, so the versions this reader accepts never depend on the filesystem.
 # The archive test fails if this differs from the archived versions.
-_RELEASED_VERSIONS = ("0.2.0", "0.2.1", "0.3.0", "0.3.1", "0.3.2")
+_RELEASED_VERSIONS = ("0.2.0", "0.2.1", "0.3.0", "0.3.1", "0.3.2", "0.4.0")
 
 __all__ = [
     "AAVSOFilters",
@@ -197,6 +199,8 @@ class StarItem(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     """
     Definition of individual entries in an AAVSO star list.
     """
+    model_config = ConfigDict(allow_inf_nan=False, extra="forbid")
+
     x: Annotated[
         float,
         Field(
@@ -288,7 +292,6 @@ class StarItem(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
         float | None,
         Field(
             gt=0,
-            allow_inf_nan=False,
             title="Star FWHM",
             description=(
                 "Full width at half maximum of this star's image, as opposed "
@@ -305,9 +308,12 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     """
     Definition of the header section of an AAVSO star list schema.
     """
+    model_config = ConfigDict(allow_inf_nan=False, extra="forbid")
+
     obs_time: Annotated[
         str,
         Field(
+            max_length=63,
             title="Observation Start Time",
             json_schema_extra=dict(
                 unit=None,
@@ -352,6 +358,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     observer: Annotated[
         str,
         Field(
+            max_length=7,
             title="Observer Code",
             description="AAVSO code of the observer",
             json_schema_extra=dict(unit="none"),
@@ -370,6 +377,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     block_filter: Annotated[
         str,
         Field(
+            max_length=31,
             title="Blocking Filter",
             description="Name of blocking filter used on telescope",
             json_schema_extra=dict(unit="none"),
@@ -389,6 +397,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     tel_manufac: Annotated[
         str,
         Field(
+            max_length=63,
             title="Telescope Manufacturer",
             description="Name of the telescope manufacturer",
             json_schema_extra=dict(unit="none"),
@@ -418,10 +427,11 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     stack: Annotated[
         int | None,
         Field(
+            ge=1,
             title="Number of images",
             description=(
-                "Number of images stacked to create this image. "
-                "If not applicable, set to None."
+                "Number of images stacked to create this image, 1 or more. "
+                "None if not applicable."
             ),
             json_schema_extra=dict(unit="none"),
             examples=[3]
@@ -430,6 +440,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     tel_model: Annotated[
         str,
         Field(
+            max_length=63,
             title="Telescope Model",
             description="Model of the telescope",
             json_schema_extra=dict(unit="none"),
@@ -439,6 +450,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     tel_firmware: Annotated[
         str,
         Field(
+            max_length=31,
             title="Telescope Firmware",
             description="Firmware version of the telescope",
             json_schema_extra=dict(unit="none"),
@@ -479,7 +491,6 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
         float | None,
         Field(
             ge=0,
-            allow_inf_nan=False,
             title="Bias Level",
             description=(
                 "Bias (offset) level of this frame in adu: the value "
@@ -512,6 +523,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     refframe: Annotated[
         str,
         Field(
+            max_length=15,
             title="Coordinate Reference Frame",
             description="Reference frame of the observation",
             json_schema_extra=dict(unit="none"),
@@ -519,7 +531,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
         )
     ]
     photometry_software: Annotated[
-        list[Annotated[str, Field(min_length=1)]],
+        list[Annotated[str, Field(min_length=1, max_length=63)]],
         Field(
             min_length=1,
             title="Photometry Software",
@@ -548,6 +560,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     staritems: Annotated[
         list[StarItem],
         Field(
+            max_length=100_000,
             title="Star Items",
             description="List of stars detected in the image",
             json_schema_extra=dict(unit="none"),
@@ -567,20 +580,27 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             optional `StarItem` fields, such as ``fwhm``, may be omitted. When
             such a column is present it is read and validated like any other:
             a masked or NaN entry reads as None, and every other entry must
-            be a valid value for the field.
+            be a valid value for the field. A NaN in a required column is not
+            a valid value and is rejected. Of ``table.meta`` only the keys
+            that are `StarList` fields are used; other keys, such as FITS
+            header cards, are ignored.
 
         metadata : dict, optional
             Additional metadata to use in the StarList object.
             If not provided, the metadata from the table will be used.
             If both are provided, the metadata from this argument will
             take precedence. Optional fields may be omitted and take their
-            default.
+            default. It is passed through unfiltered, so a key that is not a
+            `StarList` field is rejected by validation.
 
         Raises
         ------
         ValueError
             If the table lacks a required star item column, or the metadata
             lacks a required field.
+        pydantic.ValidationError
+            If a value is not valid for its field, or ``metadata`` holds a key
+            that is not a field.
 
         Returns
         -------
@@ -609,8 +629,11 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             star_items.append(StarItem(**values))
 
         # Construct metadata, with any passed in to the metadata argument
-        # taking precedence over metadata in the table.
-        final_meta = table.meta.copy()
+        # taking precedence over metadata in the table. Only the StarList
+        # fields are taken from the table's metadata, which may carry
+        # anything (FITS header cards, say); the metadata argument is the
+        # caller's own and passes unfiltered, so a misspelled key is reported.
+        final_meta = {key: value for key, value in table.meta.items() if key in cls.model_fields}
         if metadata:
             final_meta.update(metadata)
 
@@ -786,18 +809,27 @@ class _Migration(NamedTuple):
     new dict. It need not set ``schema_version``: `upgrade` stamps the target
     version on the result. The first migration sees the version the file
     states (or none), each later one the target of the step before. Nothing
-    is validated between migrations.
+    is validated between migrations. A migration raises `ValueError`, naming
+    the field, for data the target generation cannot hold; through
+    `StarListSet` pydantic reports that as a ``ValidationError``, so it reads
+    as a problem with the file, which it is.
 
     The argument is always a ``dict``, but what is inside depends on how
     `upgrade` was reached:
 
     - From ``StarListSet.model_validate_json``, ``model_validate`` or the
       constructor, plain JSON data: dicts, lists, strings, numbers, booleans
-      and ``None``. The input is first validated, as given, against the
-      frozen ``model``, then converted by `_to_plain`: tuples become lists,
-      other mappings dicts, instances of the frozen generation's own
-      ``StarList`` or ``StarItem`` dicts of their fields, enum members their
-      values. Keys the frozen model ignores are kept.
+      and ``None``. Instances of the frozen models of the file's own
+      generation are replaced by dicts of their fields, keys the frozen
+      ``model`` of that generation does not define are dropped, unread, and
+      one-shot iterators and list-like containers (deques, arrays and the
+      like) under list fields are read into lists, one level only (see
+      `_prune_and_materialize`); the input is then validated against that
+      frozen ``model``, every other value as given, so every value the
+      first migration sees was validated by the schema of the file's own
+      generation, and each later one sees what the migration before it
+      produced. Then it is converted by `_to_plain`: lists are copied,
+      other mappings become dicts, enum members their values.
     - From `upgrade` called directly, anything at all: nothing has been
       validated or converted.
 
@@ -893,6 +925,268 @@ def _migrate_0_2_to_0_3(data):
     return data
 
 
+# What schema version 0.4.0 forbids that 0.3 allowed, as literals: this migration
+# is frozen once released, so it must not read these from the live models.
+_0_3_STAR_LIST_FLOATS = (
+    "site_lat", "site_lon", "site_elev", "exposure", "egain", "bias", "fwhm", "absolute_focus",
+)
+_0_3_STAR_ITEM_FLOATS = (
+    "x", "y", "ra", "dec", "tot_count", "count_err", "bkgd_count", "peak_count", "fwhm",
+)
+_0_4_CANNOT_UPGRADE = "schema version 0.4.0 {rule}, so this file cannot be upgraded to it"
+_0_4_MAX_STRING_LENGTHS = {
+    "obs_time": 63, "observer": 7, "block_filter": 31, "tel_manufac": 63, "tel_model": 63,
+    "tel_firmware": 31, "refframe": 15,
+}
+_0_4_MAX_PHOTOMETRY_SOFTWARE_ENTRY = 63
+_0_4_MAX_STARITEMS = 100_000
+
+
+def _as_number(value):
+    """
+    Read a value the way the frozen 0.3 models read a number.
+
+    Parameters
+    ----------
+    value : object
+        A value from a 0.3 file, under a key of a numeric field.
+
+    Returns
+    -------
+    float or None
+        ``float(value)`` for anything ``float`` accepts: an int, a float, a
+        bool, a numeric string (including ``"inf"``, ``"Infinity"`` and
+        ``"nan"``, which the frozen 0.3 models accept) and numeric types such
+        as numpy scalars or ``fractions.Fraction``, which only data built in
+        Python can hold. An int too large for a float becomes infinity of its
+        sign. None for anything else, such as a string that is not a number.
+    """
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+    except OverflowError:
+        return math.inf if value > 0 else -math.inf
+
+
+def _keep_defined(record, model):
+    """
+    Keep only the keys of a record that a frozen 0.3 model defines.
+
+    Parameters
+    ----------
+    record : object
+        A starlist set, star list or star item. Reached through the model it
+        is always a dict of plain data (see `_Migration`); from `upgrade`
+        called directly it may also be another mapping or a model instance,
+        which are converted to a dict, or anything else.
+    model : type
+        The frozen 0.3 model of ``record``: ``StarListSet``, ``StarList`` or
+        ``StarItem`` of `_aavso_starlist_v0_3`.
+
+    Returns
+    -------
+    dict or object
+        A new dict of the keys of ``record`` that are fields of ``model``, in
+        their original order. The 0.3 models ignored any other key, so
+        dropping it loses nothing a 0.3 file meant. Anything that is neither
+        a mapping nor a model is returned unchanged, for validation to
+        reject.
+    """
+    if isinstance(record, BaseModel):
+        record = record.model_dump()
+    if not isinstance(record, Mapping):
+        return record
+    return {key: value for key, value in record.items() if key in model.model_fields}
+
+
+def _refuse_non_finite(record, float_fields, path):
+    """
+    Refuse a record with an infinite or NaN float, which 0.4.0 cannot hold.
+
+    Parameters
+    ----------
+    record : dict
+        A star list or star item from a 0.3 file.
+    float_fields : tuple of str
+        The names of the float fields of ``record``'s 0.3 model.
+    path : str
+        Where ``record`` is in the file, such as ``star_lists[0]``, for the
+        error message.
+
+    Raises
+    ------
+    ValueError
+        If one of ``float_fields`` holds infinity or NaN, as a number or as a
+        numeric string; the message names ``path`` and the field.
+    """
+    for name in float_fields:
+        if name in record:
+            number = _as_number(record[name])
+            if number is not None and not math.isfinite(number):
+                raise ValueError(
+                    f"{path}.{name} is {record[name]!r}; "
+                    + _0_4_CANNOT_UPGRADE.format(rule="requires a finite number")
+                )
+
+
+def _refuse_overlong(star_list, path):
+    """
+    Refuse a star list with a string longer than 0.4.0 allows.
+
+    Parameters
+    ----------
+    star_list : dict
+        A star list from a 0.3 file.
+    path : str
+        Where ``star_list`` is in the file, such as ``star_lists[0]``, for the
+        error message.
+
+    Raises
+    ------
+    ValueError
+        If one of the fields in `_0_4_MAX_STRING_LENGTHS`, or an entry of
+        ``photometry_software``, is a string with more characters (code
+        points, as pydantic counts them) than 0.4.0 allows; the message names
+        ``path`` and the field.
+    """
+    for name, limit in _0_4_MAX_STRING_LENGTHS.items():
+        value = star_list.get(name)
+        if isinstance(value, str) and len(value) > limit:
+            raise ValueError(
+                f"{path}.{name} has {len(value)} characters; "
+                + _0_4_CANNOT_UPGRADE.format(rule=f"allows at most {limit}")
+            )
+    software = star_list.get("photometry_software")
+    if isinstance(software, (list, tuple)):
+        for index, entry in enumerate(software):
+            if isinstance(entry, str) and len(entry) > _0_4_MAX_PHOTOMETRY_SOFTWARE_ENTRY:
+                raise ValueError(
+                    f"{path}.photometry_software[{index}] has {len(entry)} characters; "
+                    + _0_4_CANNOT_UPGRADE.format(
+                        rule=f"allows at most {_0_4_MAX_PHOTOMETRY_SOFTWARE_ENTRY}"
+                    )
+                )
+
+
+def _star_item_0_4(item, path):
+    """
+    Migrate one star item of a 0.3 file to schema version 0.4.0.
+
+    Parameters
+    ----------
+    item : object
+        One entry of a star list's ``staritems``; see `_keep_defined` for
+        what it may be.
+    path : str
+        Where ``item`` is in the file, such as ``star_lists[0].staritems[2]``,
+        for the error message.
+
+    Returns
+    -------
+    dict or object
+        ``item`` as a dict with only the keys the 0.3 ``StarItem`` defines,
+        or ``item`` unchanged if it is neither a mapping nor a model.
+
+    Raises
+    ------
+    ValueError
+        If a float field of ``item`` holds infinity or NaN.
+    """
+    item = _keep_defined(item, _aavso_starlist_v0_3.StarItem)
+    if isinstance(item, dict):
+        _refuse_non_finite(item, _0_3_STAR_ITEM_FLOATS, path)
+    return item
+
+
+def _star_list_0_4(star_list, path):
+    """
+    Migrate one star list of a 0.3 file to schema version 0.4.0.
+
+    Parameters
+    ----------
+    star_list : object
+        One entry of ``star_lists``; see `_keep_defined` for what it may be.
+    path : str
+        Where ``star_list`` is in the file, such as ``star_lists[0]``, for the
+        error message.
+
+    Returns
+    -------
+    dict or object
+        ``star_list`` as a dict with only the keys the 0.3 ``StarList``
+        defines, a ``stack`` below 1 set to None, and each of its star items
+        migrated by `_star_item_0_4` (``staritems`` becomes a list); or
+        ``star_list`` unchanged if it is neither a mapping nor a model.
+
+    Raises
+    ------
+    ValueError
+        If a float field of the star list or of one of its star items holds
+        infinity or NaN, a string field is longer than 0.4.0 allows, or the
+        star list has more than 100000 star items.
+    """
+    star_list = _keep_defined(star_list, _aavso_starlist_v0_3.StarList)
+    if not isinstance(star_list, dict):
+        return star_list
+    _refuse_non_finite(star_list, _0_3_STAR_LIST_FLOATS, path)
+    _refuse_overlong(star_list, path)
+    # A stack of 0 or less counts no images; "not applicable" is its honest
+    # reading. The frozen 0.3 model also took "0" and False, so read numbers.
+    if "stack" in star_list:
+        number = _as_number(star_list["stack"])
+        if number is not None and number < 1:
+            star_list["stack"] = None
+    items = star_list.get("staritems")
+    if isinstance(items, (list, tuple)):
+        if len(items) > _0_4_MAX_STARITEMS:
+            raise ValueError(
+                f"{path}.staritems has {len(items)} entries; "
+                + _0_4_CANNOT_UPGRADE.format(rule=f"allows at most {_0_4_MAX_STARITEMS}")
+            )
+        star_list["staritems"] = [
+            _star_item_0_4(item, f"{path}.staritems[{index}]") for index, item in enumerate(items)
+        ]
+    return star_list
+
+
+def _migrate_0_3_to_0_4(data):
+    """
+    Migrate a 0.3 starlist set to schema version 0.4.0.
+
+    Parameters
+    ----------
+    data : dict
+        Raw starlist-set data from a 0.3 file. `upgrade` passes a copy.
+
+    Returns
+    -------
+    dict
+        ``data`` with the keys the 0.3 models do not define dropped at every
+        level (the 0.3 reader ignored them; 0.4.0 forbids them), a ``stack``
+        below 1 set to None on every star list, and ``star_lists`` a list. A
+        tuple of star lists or star items, which only `upgrade` called
+        directly can pass, is handled too.
+
+    Raises
+    ------
+    ValueError
+        If a float field holds infinity or NaN, a string field is longer
+        than 0.4.0 allows, or a star list has more than 100000 star items.
+        Through `StarListSet` pydantic reports it as a ``ValidationError``
+        (type ``value_error``); from `upgrade` it is raised as is. Such a
+        file is valid for 0.3 but has no honest 0.4 form.
+    """
+    data = _keep_defined(data, _aavso_starlist_v0_3.StarListSet)
+    star_lists = data.get("star_lists")
+    if isinstance(star_lists, (list, tuple)):
+        data["star_lists"] = [
+            _star_list_0_4(star_list, f"star_lists[{index}]")
+            for index, star_list in enumerate(star_lists)
+        ]
+    return data
+
+
 # Keyed by the generation a file is in; the value takes it to the next generation.
 # Each breaking change adds an entry here, keyed by the generation being left,
 # with a frozen copy of that generation's models in its own _aavso_starlist_*.py.
@@ -908,6 +1202,12 @@ _MIGRATIONS = {
         "0.3.0",
         _migrate_0_2_to_0_3,
         'photometry_software became required; every star list gets ["unknown"]',
+    ),
+    "0.3": _Migration(
+        _aavso_starlist_v0_3.StarListSet,
+        "0.4.0",
+        _migrate_0_3_to_0_4,
+        "keys the 0.3 schema does not define were dropped and a stack below 1 became null",
     ),
 }
 
@@ -1064,20 +1364,168 @@ def _to_plain(value):
     -------
     object
         A new structure of dicts, lists, strings, numbers, booleans and
-        ``None``: every mapping becomes a dict, a tuple a list, a model
-        instance a dict of its fields, an enum member its value and a
+        ``None``: every mapping becomes a dict, every list a new list, and
+        every other value is serialized by pydantic, so a model instance
+        becomes a dict of its fields, an enum member its value and a
         datetime an ISO 8601 string. A value of a type pydantic cannot
-        serialize, possible only under a key the models ignore, is passed on
-        as given.
+        serialize is passed on as given.
+
+    Notes
+    -----
+    Only a ``list`` is converted item by item, not every list-like value
+    (see `_is_sequence_like`): by the time this runs, `_prune_and_materialize`
+    has read the value under every list field into a list and the frozen
+    model has validated the rest, so an iterable left anywhere else is a
+    value pydantic read as a scalar, such as a float subclass that defines
+    ``__iter__``, and must stay one.
     """
     if isinstance(value, Mapping):
         return {key: _to_plain(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, list):
         return [_to_plain(item) for item in value]
     try:
         return to_jsonable_python(value)
     except PydanticSerializationError:
         return value
+
+
+def _is_sequence_like(value):
+    """
+    Tell whether a pydantic list field would read a value as a list.
+
+    Parameters
+    ----------
+    value : object
+        Raw starlist-set data, or any value inside it.
+
+    Returns
+    -------
+    bool
+        True for an iterable that is not a string, bytes, mapping, model
+        instance or zero-dimensional array: a list, tuple, deque, set,
+        generator or array of one or more dimensions, for example.
+    """
+    if isinstance(value, (str, bytes, bytearray, Mapping, BaseModel)):
+        return False
+    if getattr(value, "ndim", 1) == 0:
+        return False
+    return isinstance(value, Iterable)
+
+
+def _list_item_type(annotation):
+    """
+    Find the item type of a list field's annotation.
+
+    Parameters
+    ----------
+    annotation : type or typing special form
+        The ``annotation`` of a pydantic ``FieldInfo``.
+
+    Returns
+    -------
+    type or typing special form or None
+        The item type of ``annotation`` if it is a list, with ``Annotated``
+        wrappers dropped from both the list and its item, so
+        ``list[StarItem]``, ``list[StarItem] | None`` and
+        ``Optional[list[StarItem]]`` all give ``StarItem``; ``object`` for a
+        bare ``list`` or ``typing.List``. None if ``annotation`` is not a
+        list, or is a union of more than one list type.
+    """
+    origin = get_origin(annotation)
+    if origin is Annotated:
+        return _list_item_type(get_args(annotation)[0])
+    if origin is Union or origin is UnionType:
+        found = [
+            item for item in map(_list_item_type, get_args(annotation)) if item is not None
+        ]
+        return found[0] if len(found) == 1 else None
+    if annotation is list:
+        return object
+    if origin is list:
+        if not get_args(annotation):
+            return object
+        item = get_args(annotation)[0]
+        while get_origin(item) is Annotated:
+            item = get_args(item)[0]
+        return item
+    return None
+
+
+def _prune_and_materialize(record, model):
+    """
+    Keep the keys a frozen model defines, reading one-shot iterators in lists.
+
+    Parameters
+    ----------
+    record : object
+        Raw starlist-set data from a file of a generation before the current
+        one, or a star list or star item inside it.
+    model : type
+        The frozen model of ``record`` in the file's own generation: the
+        ``StarListSet`` of `_MIGRATIONS` for the file's generation, or a
+        model nested in it (its ``StarList`` or ``StarItem``).
+
+    Returns
+    -------
+    object
+        If ``record`` is an instance of ``model`` (a record of the file's own
+        generation built in Python), the fields it was given as a dict from
+        ``model_dump`` (without serializer warnings, which a wrong value
+        would raise, and without the fields left at their defaults, so it
+        upgrades like the same data given as a dict), pruned like any
+        mapping below, so it is validated: the frozen models do not
+        revalidate their own instances, and one changed after it was built
+        could hold anything. If ``record`` is anything else that is not a
+        mapping, ``record`` as given: an instance
+        of another model or a wrong value is left for validation to reject.
+        If it is a mapping, a dict of its keys in their original order,
+        where:
+
+        - a key ``model`` does not define is dropped without its value being
+          read, unless ``model`` forbids extra keys, when it is kept as given
+          so the frozen validation rejects it. A model that ignores the key
+          ignores its value, and nothing downstream may use a value no schema
+          validated; reading it could also fail or never finish (a closed
+          file, an endless generator);
+        - under a field that is a list of models (``star_lists``,
+          ``staritems``), a list-like value (see `_is_sequence_like`) is read
+          into a list, each item passed through this function with the
+          nested model;
+        - under any other list field (``photometry_software``), a list-like
+          value is read into a list, one level only: its items are kept as
+          given, so validation reports a wrong item at its index, and an
+          item is never iterated (a closed file, an endless generator, the
+          list itself);
+        - every other value, including one under a scalar field, is kept as
+          given, so validation reports a wrong value where it is.
+
+        A one-shot iterator under a list field is so read once, before the
+        frozen validation, and the migrations get the same items. The
+        list-like value under a list field is itself read in full, as
+        ``validate_as_written`` with the frozen model would read it: an
+        endless iterator there never finishes, and an error its iteration
+        raises propagates as raised, not as a validation error.
+    """
+    if isinstance(record, model):
+        record = record.model_dump(warnings=False, exclude_unset=True)
+    if not isinstance(record, Mapping):
+        return record
+    forbids_extra = model.model_config.get("extra") == "forbid"
+    kept = {}
+    for key, value in record.items():
+        field = model.model_fields.get(key)
+        if field is None:
+            if forbids_extra:
+                kept[key] = value
+            continue
+        item_type = _list_item_type(field.annotation)
+        if item_type is None or not _is_sequence_like(value):
+            kept[key] = value
+        elif isinstance(item_type, type) and issubclass(item_type, BaseModel):
+            kept[key] = [_prune_and_materialize(item, item_type) for item in value]
+        else:
+            kept[key] = list(value)
+    return kept
 
 
 def upgrade(data):
@@ -1110,6 +1558,9 @@ def upgrade(data):
     UnsupportedSchemaVersionError
         If the version is null, cannot be interpreted, is 0.2.0 or later but
         was never released, or has no migration path.
+    ValueError
+        If a migration refuses the data because the target generation cannot
+        hold it; the message names the field.
 
     Warns
     -----
@@ -1162,7 +1613,7 @@ class StarListSet(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin
     Class to hold a list for which each entry is a star list.
     """
     # Make the generated JSON schema state its own version.
-    model_config = ConfigDict(json_schema_extra={"version": SCHEMA_VERSION})
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"version": SCHEMA_VERSION})
 
     # Put the version here because this is the file we expect manufacturers
     # to submit.
@@ -1193,17 +1644,23 @@ class StarListSet(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin
     @classmethod
     def _read_older_versions(cls, data, handler):
         """
-        Validate data from an older schema version as written, then upgrade it.
+        Validate data from an older schema version as given, then upgrade it.
 
         This runs for ``model_validate``, ``model_validate_json`` and the
         constructor, so every way of creating a `StarListSet` reads old files.
         Data from an older generation goes through three steps:
 
-        1. Validate it, as given, against the frozen model of its own
-           generation.
-        2. Convert it to plain JSON data with `_to_plain`, keeping keys the
-           frozen model ignores, and upgrade it to the current version with
-           `upgrade`.
+        1. With `_prune_and_materialize`, read an instance of a frozen
+           model of the data's own generation as a dict of its fields, drop
+           the keys that generation's frozen model does not define, at every
+           level, without reading their values, and read one-shot iterators
+           and list-like containers (deques, arrays and the like) under list
+           fields into lists, one level only and once, so a generator is
+           read only once; then validate the data, otherwise as given,
+           against that frozen model. Every value the first migration sees
+           has so been validated by the schema of the file's own generation.
+        2. Convert the data to plain JSON data with `_to_plain` and upgrade
+           it to the current version with `upgrade`.
         3. Validate the result against this model.
 
         Data already in the current generation only gets step 3, stamped with
@@ -1225,7 +1682,10 @@ class StarListSet(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin
         Raises
         ------
         pydantic.ValidationError
-            If the data is not valid for the schema version it states.
+            If the data is not valid for the schema version it states, or a
+            migration refuses it because the current generation cannot hold a
+            value in it (a `ValueError` from the migration, which pydantic
+            wraps).
         MigrationResultError
             If older data was valid as written but the upgraded data is not
             valid; this is a bug in a migration.
@@ -1249,9 +1709,17 @@ class StarListSet(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin
             # the model always states the version it conforms to.
             return handler({**data, "schema_version": SCHEMA_VERSION})
 
-        _MIGRATIONS[generation].model.model_validate(data)
-        # Convert the raw input, not the validated model, so keys the frozen
-        # model ignores still reach the migrations.
+        # Drop keys the file's own frozen model does not define unread (it
+        # ignores them, and no migration may use a value no schema validated)
+        # and read one-shot iterators under list fields once, before both
+        # steps: a generator read by the frozen model would reach the
+        # migrations empty. Validate the data otherwise as given, so a
+        # datetime in a string field is still refused. Upgrade the plain
+        # input, not the validated model, so the upgraded data holds what the
+        # file holds, not the model's defaults.
+        frozen = _MIGRATIONS[generation].model
+        data = _prune_and_materialize(data, frozen)
+        frozen.model_validate(data)
         upgraded = upgrade(_to_plain(data))
         try:
             return handler(upgraded)

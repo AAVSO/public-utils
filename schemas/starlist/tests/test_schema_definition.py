@@ -4,6 +4,7 @@ from typing import Annotated, Optional
 
 import numpy as np
 import pytest
+from _helpers import float_fields
 from astropy.table import MaskedColumn, Table
 from pydantic import ValidationError
 
@@ -22,6 +23,38 @@ from aavso_starlist_schema import (
     generate_starlist_schema,
     main,
 )
+
+# The float fields of each model, as the next tests check them; the first test
+# below keeps these lists complete.
+STAR_ITEM_FLOAT_FIELDS = [
+    "x", "y", "ra", "dec", "tot_count", "count_err", "bkgd_count", "peak_count", "fwhm",
+]
+STAR_LIST_FLOAT_FIELDS = [
+    "site_lat", "site_lon", "site_elev", "exposure", "egain", "bias", "fwhm", "absolute_focus",
+]
+
+# The maximum length, in characters, of each capped string field of a star list.
+STRING_LIMITS = {
+    "obs_time": 63, "observer": 7, "block_filter": 31, "tel_manufac": 63, "tel_model": 63,
+    "tel_firmware": 31, "refframe": 15,
+}
+
+
+def _one_star_set_data():
+    """
+    Build raw data for a current star list set of one star list of one star item.
+
+    Returns
+    -------
+    dict
+        The example `StarListSet`, with one example `StarList` holding one
+        example `StarItem`, dumped to JSON-compatible types.
+    """
+    star_list = StarList.from_examples()
+    star_list.staritems = [StarItem.from_examples()]
+    data = StarListSet.from_examples().model_dump(mode="json")
+    data["star_lists"] = [star_list.model_dump(mode="json")]
+    return data
 
 
 @pytest.mark.parametrize("klass", [StarItem, StarList, StarListSet])
@@ -106,16 +139,159 @@ def test_star_item_fwhm_must_be_positive(value):
         StarItem.model_validate(data)
 
 
-@pytest.mark.parametrize("value", [float("inf"), float("nan")])
-def test_star_item_fwhm_rejects_infinity_and_nan(value):
-    # JSON has no infinity or NaN, so pydantic would write either as null,
-    # which is a valid fwhm meaning "not available"; the value would be lost
-    # with no error. Both are rejected instead.
-    data = StarItem.from_examples().model_dump()
-    data["fwhm"] = value
+@pytest.mark.parametrize(
+    "klass, expected",
+    [
+        pytest.param(StarItem, STAR_ITEM_FLOAT_FIELDS, id="StarItem"),
+        pytest.param(StarList, STAR_LIST_FLOAT_FIELDS, id="StarList"),
+    ],
+)
+def test_float_fields_are_all_listed(klass, expected):
+    # The lists of float fields the next tests check are every field whose
+    # type is float, optional or not, so a new float field cannot escape them.
+    assert list(float_fields(klass)) == expected
 
-    with pytest.raises(ValidationError, match="finite number"):
-        StarItem.model_validate(data)
+
+@pytest.mark.parametrize(
+    "value", [float("inf"), float("-inf"), float("nan")], ids=["inf", "-inf", "nan"]
+)
+@pytest.mark.parametrize(
+    "klass, field_name",
+    [(StarItem, name) for name in STAR_ITEM_FLOAT_FIELDS]
+    + [(StarList, name) for name in STAR_LIST_FLOAT_FIELDS],
+)
+def test_float_field_rejects_infinity_and_nan(klass, field_name, value):
+    # JSON has no infinity or NaN, so pydantic would write either as null (a
+    # valid value for an optional field, meaning "not available", and an
+    # invalid file otherwise); every float field rejects them, naming itself.
+    data = klass.from_examples().model_dump()
+    data[field_name] = value
+
+    with pytest.raises(ValidationError, match="finite number") as excinfo:
+        klass.model_validate(data)
+
+    assert excinfo.value.errors()[0]["loc"] == (field_name,)
+
+
+@pytest.mark.parametrize("value", [float("inf"), float("nan")], ids=["inf", "nan"])
+def test_json_text_with_infinity_or_nan_token_is_rejected(value):
+    # JSON text with the non-standard Infinity or NaN tokens, which Python's
+    # json module writes, is rejected in the two float fields that have no
+    # other constraint, so nothing but the finiteness check stops them.
+    data = _one_star_set_data()
+    data["star_lists"][0]["site_elev"] = value
+    data["star_lists"][0]["staritems"][0]["bkgd_count"] = value
+    text = json.dumps(data)
+
+    with pytest.raises(ValidationError, match="finite number") as excinfo:
+        StarListSet.model_validate_json(text)
+
+    errors = excinfo.value.errors()
+    assert {tuple(error["loc"]) for error in errors} == {
+        ("star_lists", 0, "site_elev"),
+        ("star_lists", 0, "staritems", 0, "bkgd_count"),
+    }
+    assert all(error["type"] == "finite_number" for error in errors)
+
+
+@pytest.mark.parametrize(
+    "level, loc",
+    [
+        ("set", ("bogus",)),
+        ("star_list", ("star_lists", 0, "bogus")),
+        ("star_item", ("star_lists", 0, "staritems", 0, "bogus")),
+    ],
+    ids=["set", "star_list", "star_item"],
+)
+def test_unknown_key_is_rejected_at_each_level(level, loc):
+    # A key the schema does not define is rejected at every level of the
+    # file, and the error says where it is.
+    data = _one_star_set_data()
+    target = {
+        "set": data,
+        "star_list": data["star_lists"][0],
+        "star_item": data["star_lists"][0]["staritems"][0],
+    }[level]
+    target["bogus"] = 1
+
+    with pytest.raises(ValidationError) as excinfo:
+        StarListSet.model_validate(data)
+
+    error = excinfo.value.errors()[0]
+    assert error["type"] == "extra_forbidden"
+    assert error["loc"] == loc
+    assert "bogus" in str(excinfo.value)
+    assert "Extra inputs are not permitted" in str(excinfo.value)
+
+
+def test_misspelled_optional_field_is_reported_not_dropped():
+    # A misspelled optional field used to be ignored, so the field silently
+    # read as None; now the misspelling is reported.
+    data = StarList.from_examples().model_dump()
+    data["absolute_focs"] = data.pop("absolute_focus")
+
+    with pytest.raises(ValidationError, match="absolute_focs"):
+        StarList.model_validate(data)
+
+
+def test_misspelled_required_field_is_reported_with_the_missing_field():
+    # A misspelled required field is reported twice: the correct name as
+    # missing and the misspelling as an unknown key, so the reader sees both
+    # halves of the mistake.
+    data = _one_star_set_data()
+    data["star_lists"][0]["observr"] = data["star_lists"][0].pop("observer")
+
+    with pytest.raises(ValidationError) as excinfo:
+        StarListSet.model_validate(data)
+
+    assert {(error["type"], error["loc"]) for error in excinfo.value.errors()} == {
+        ("missing", ("star_lists", 0, "observer")),
+        ("extra_forbidden", ("star_lists", 0, "observr")),
+    }
+
+
+def test_schema_forbids_additional_properties():
+    # The generated schema forbids keys it does not define on the star list
+    # set, each star list and each star item.
+    schema = json.loads(generate_star_list_set_schema())
+
+    assert schema["additionalProperties"] is False
+    assert schema["$defs"]["StarList"]["additionalProperties"] is False
+    assert schema["$defs"]["StarItem"]["additionalProperties"] is False
+
+
+@pytest.mark.parametrize("value", [0, -1])
+def test_stack_rejects_values_below_one(value):
+    # A stack counts the images in the image, so it is at least 1; 0 and
+    # negative counts are rejected, and the error is located at the field.
+    data = StarList.from_examples().model_dump()
+    data["stack"] = value
+
+    with pytest.raises(ValidationError, match="greater than or equal to 1") as excinfo:
+        StarList.model_validate(data)
+
+    error = excinfo.value.errors()[0]
+    assert error["type"] == "greater_than_equal"
+    assert error["loc"] == ("stack",)
+
+
+@pytest.mark.parametrize("value", [1, None], ids=["one", "none"])
+def test_stack_accepts_one_or_none(value):
+    # 1, the boundary, is accepted and kept; so is None, "not applicable".
+    data = StarList.from_examples().model_dump()
+    data["stack"] = value
+
+    assert StarList.model_validate(data).stack == value
+
+
+def test_stack_schema_has_minimum_one():
+    # The generated schema says stack is an integer of at least 1, or null.
+    schema = StarList.model_json_schema()
+
+    assert schema["properties"]["stack"]["anyOf"] == [
+        {"type": "integer", "minimum": 1},
+        {"type": "null"},
+    ]
 
 
 def test_bias_is_optional():
@@ -277,6 +453,84 @@ def test_photometry_software_survives_a_table_round_trip():
 
     assert result.photometry_software == ["bandaid 1.2.3", "browser-photometry 4.5.6"]
     assert result == star_list
+
+
+@pytest.mark.parametrize(
+    "field_name,limit", list(STRING_LIMITS.items()), ids=list(STRING_LIMITS)
+)
+def test_string_field_accepts_its_maximum_length(field_name, limit):
+    # A string exactly as long as its field allows is accepted and kept.
+    data = StarList.from_examples().model_dump()
+    data[field_name] = "x" * limit
+
+    assert getattr(StarList.model_validate(data), field_name) == "x" * limit
+
+
+@pytest.mark.parametrize(
+    "field_name,limit", list(STRING_LIMITS.items()), ids=list(STRING_LIMITS)
+)
+def test_string_field_rejects_one_character_over_its_maximum(field_name, limit):
+    # One character over the limit is rejected, naming the field and the limit.
+    data = StarList.from_examples().model_dump()
+    data[field_name] = "x" * (limit + 1)
+
+    with pytest.raises(ValidationError, match=f"at most {limit} characters") as excinfo:
+        StarList.model_validate(data)
+
+    assert excinfo.value.errors()[0]["loc"] == (field_name,)
+
+
+@pytest.mark.parametrize(
+    "field_name,limit", list(STRING_LIMITS.items()), ids=list(STRING_LIMITS)
+)
+def test_string_limits_are_in_the_schema(field_name, limit):
+    # Each string limit appears in the generated schema as maxLength.
+    schema = StarList.model_json_schema()
+
+    assert schema["properties"][field_name]["maxLength"] == limit
+
+
+def test_photometry_software_entry_accepts_its_maximum_length():
+    # A photometry_software entry of exactly 63 characters is accepted and
+    # kept, and the schema states the limit on the list's items.
+    data = StarList.from_examples().model_dump()
+    data["photometry_software"] = ["x" * 63]
+
+    assert StarList.model_validate(data).photometry_software == ["x" * 63]
+    schema = StarList.model_json_schema()
+    assert schema["properties"]["photometry_software"]["items"]["maxLength"] == 63
+
+
+def test_photometry_software_entry_rejects_one_character_over():
+    # A photometry_software entry of 64 characters is rejected, and the
+    # error points at the entry.
+    data = StarList.from_examples().model_dump()
+    data["photometry_software"] = ["x" * 64]
+
+    with pytest.raises(ValidationError, match="at most 63") as excinfo:
+        StarList.model_validate(data)
+
+    assert excinfo.value.errors()[0]["loc"] == ("photometry_software", 0)
+
+
+def test_staritems_accepts_the_maximum_number():
+    # A star list of exactly 100000 star items, the cap, is accepted.
+    data = StarList.from_examples().model_dump()
+    data["staritems"] = [StarItem.from_examples().model_dump()] * 100_000
+
+    assert len(StarList.model_validate(data).staritems) == 100_000
+
+
+def test_staritems_rejects_one_over_the_maximum():
+    # One star item over the cap is rejected, and the schema states the cap
+    # as maxItems.
+    data = StarList.from_examples().model_dump()
+    data["staritems"] = [StarItem.from_examples().model_dump()] * 100_001
+
+    with pytest.raises(ValidationError, match="at most 100000 items"):
+        StarList.model_validate(data)
+    schema = StarList.model_json_schema()
+    assert schema["properties"]["staritems"]["maxItems"] == 100_000
 
 
 def _count_cells(row):
@@ -482,7 +736,7 @@ def test_make_star_list_from_table_of_items():
 
     # 3. Provide both table metadata and explicit metadata argument.
     #    The explicit metadata should take precedence
-    fake_observer = "Ima Fake"
+    fake_observer = "FAKE"
     meta["observer"] = fake_observer
     sl3 = StarList.from_table(table, meta)
     assert sl3.observer == fake_observer
@@ -614,6 +868,34 @@ def test_from_table_still_requires_the_required_star_item_columns():
     del table["dec"]
 
     with pytest.raises(ValueError, match="Missing columns in table: dec, peak_count$"):
+        StarList.from_table(table)
+
+
+def test_from_table_ignores_unknown_table_metadata_keys():
+    # A table's metadata may carry anything, such as FITS header cards;
+    # from_table uses only the StarList fields from it and ignores the rest.
+    expected = StarList.from_table(_single_star_table())
+    table = _single_star_table()
+    table.meta["EXPTIME"] = 30.0
+    table.meta["COMMENT"] = "fits card"
+
+    assert StarList.from_table(table) == expected
+
+
+def test_from_table_rejects_unknown_explicit_metadata_keys():
+    # The metadata argument is the caller's own, so it is not filtered: a
+    # misspelled key there is reported rather than ignored.
+    with pytest.raises(ValidationError, match="observr"):
+        StarList.from_table(_single_star_table(), metadata={"observr": "MMU"})
+
+
+def test_from_table_rejects_nan_in_a_required_star_item_column():
+    # Only an optional column reads NaN as None; in a required column NaN is
+    # a value, and every float field rejects it.
+    table = _single_star_table()
+    table["bkgd_count"] = [np.nan]
+
+    with pytest.raises(ValidationError, match="finite number"):
         StarList.from_table(table)
 
 

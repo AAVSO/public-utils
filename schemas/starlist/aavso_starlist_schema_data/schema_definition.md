@@ -2,7 +2,7 @@
 
 | Title | JSON Field | Type | Unit | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
-| Starlist Schema Version | schema_version | str | none | The version of this schema that the file was written against, assigned by AAVSO | "0.3.2" |
+| Starlist Schema Version | schema_version | str | none | The version of this schema that the file was written against, assigned by AAVSO | "0.4.0" |
 | Star List Set | star_lists | list[StarList] | none | List of star lists | [] |
 
 
@@ -24,7 +24,7 @@
 | Telescope Manufacturer | tel_manufac | str | none | Name of the telescope manufacturer | "Celestron" |
 | Image Width | width | int | pixel | Width of the image in pixels | 2048 |
 | Image Height | height | int | pixel | Height of the image in pixels | 1024 |
-| Number of images | stack | int \| None | none | Number of images stacked to create this image. If not applicable, set to None. | 3 |
+| Number of images | stack | int \| None | none | Number of images stacked to create this image, 1 or more. None if not applicable. | 3 |
 | Telescope Model | tel_model | str | none | Model of the telescope | "Origin 1" |
 | Telescope Firmware | tel_firmware | str | none | Firmware version of the telescope | "20240817.01" |
 | A/D Converter Bit Depth | adc_depth | int | bit | Bit depth of the analog-to-digital converter | 14 |
