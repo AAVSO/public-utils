@@ -1,11 +1,12 @@
-# aavso-starlist-schema
+# AAVSO Starlist Schema
 
-JSON-schema definition and generators for AAVSO smart-telescope starlists.
+## Schema description for computers
+The JSON schemas that can be used to validate startlists in a number of programming languages are in the [schema definition folder](https://github.com/AAVSO/public-utils/tree/main/schemas/starlist/aavso_starlist_schema_data). The current version is the one with the highest version number in the filename; a duplicate of it is also in the folder, called [`schema_definition.json`](https://github.com/AAVSO/public-utils/blob/main/schemas/starlist/aavso_starlist_schema_data/schema_definition.json).
 
-This package defines the [pydantic](https://docs.pydantic.dev/) models that
-describe an AAVSO Smart Telescope starlist (`StarItem`, `StarList`,
-`StarListSet`) and provides helpers to emit the schema as JSON or as a
-human-readable markdown table.
+## Schema description for humans
+There is a [human-readable description of the schema](https://github.com/AAVSO/public-utils/blob/main/schemas/starlist/aavso_starlist_schema_data/schema_definition.md) available. In brief, a star file contains a single StarListSet, corresponding to a single image, which contains one or more `StarList`s. Eacah StarList contains one or more `StarItem`s, which describe the stars in the image, along with metadata about the image and star list.
+
+## Schema tools for Python
 
 ## Installation
 
