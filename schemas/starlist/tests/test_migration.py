@@ -2,6 +2,7 @@ import copy
 import datetime
 import decimal
 import io
+import itertools
 import json
 import re
 import warnings
@@ -9,12 +10,12 @@ from collections import deque
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
-from typing import List  # noqa: UP035 -- the bare typing.List is tested
+from typing import Annotated, List  # noqa: UP035 -- the bare typing.List is tested
 
 import numpy as np
 import pytest
 from _helpers import float_fields, flooded
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 import _aavso_starlist_legacy
 import _aavso_starlist_v0_2
@@ -1931,3 +1932,386 @@ def test_older_file_validation_stops_at_the_first_bad_entry_of_a_list_field(
 
     assert many.value.error_count() == one.value.error_count()
     assert {error["loc"][: len(path) + 1] for error in many.value.errors()} == {(*path, 0)}
+
+
+def _fails_after_one(item, error):
+    """
+    Build a generator that yields one item, then fails.
+
+    Parameters
+    ----------
+    item : object
+        The item to yield first.
+    error : type
+        The exception class to raise on the second ``next``.
+
+    Returns
+    -------
+    generator
+        A generator yielding ``item``, then raising ``error("boom")``.
+    """
+    yield item
+    raise error("boom")
+
+
+def _failing_star_lists(data, error):
+    """
+    Put the star lists of a starlist set in a generator that fails after one.
+
+    Parameters
+    ----------
+    data : dict
+        Raw starlist-set data, modified in place.
+    error : type
+        The exception class the generator raises.
+    """
+    data["star_lists"] = _fails_after_one(data["star_lists"][0], error)
+
+
+def _failing_star_items(data, error):
+    """
+    Put the star items of the first star list in a generator that fails after one.
+
+    Parameters
+    ----------
+    data : dict
+        Raw starlist-set data, modified in place.
+    error : type
+        The exception class the generator raises.
+    """
+    star_list = data["star_lists"][0]
+    star_list["staritems"] = _fails_after_one(star_list["staritems"][1], error)
+
+
+def _closed_photometry_software(data, _error):
+    """
+    Make the photometry_software of the first star list a closed file.
+
+    Parameters
+    ----------
+    data : dict
+        Raw starlist-set data, modified in place.
+    _error : type
+        Unused; a closed file raises ``ValueError`` when read.
+    """
+    data["star_lists"][0]["photometry_software"] = _closed_file()
+
+
+@pytest.mark.parametrize(
+    "mutate, error, error_type, loc, message",
+    [
+        pytest.param(
+            _failing_star_lists, TypeError, "iteration_error", ("star_lists", 1),
+            "TypeError: boom",
+            id="star_lists-TypeError",
+        ),
+        pytest.param(
+            _failing_star_lists, ValueError, "iteration_error", ("star_lists", 1),
+            "ValueError: boom",
+            id="star_lists-ValueError",
+        ),
+        pytest.param(
+            _failing_star_items, TypeError, "iteration_error",
+            ("star_lists", 0, "staritems", 1), "TypeError: boom",
+            id="staritems-TypeError",
+        ),
+        pytest.param(
+            _closed_photometry_software, None, "list_type",
+            ("star_lists", 0, "photometry_software"), "Input should be a valid list",
+            id="photometry_software-closed",
+        ),
+    ],
+)
+def test_error_reading_a_list_field_of_an_older_file_is_reported_where_pydantic_does(
+    mutate, error, error_type, loc, message
+):
+    # An exception raised while the value under a list field of an older
+    # file is read into a list is the ValidationError pydantic gives for the
+    # same value in a current file, and validate_as_written gives: an
+    # iteration_error at the index of the entry that could not be read, or
+    # a list_type at the field for a value that cannot be iterated at all (a
+    # closed file). Before the fix a TypeError escaped as itself, and a
+    # ValueError (a closed file among them) was a value_error with an empty
+    # loc.
+    for validate in (StarListSet.model_validate, validate_as_written):
+        data = _written_at_0_3()
+        mutate(data, error)
+
+        with pytest.raises(ValidationError) as excinfo:
+            validate(data)
+
+        [found] = excinfo.value.errors()
+        assert found["type"] == error_type
+        assert found["loc"] == loc
+        assert message in found["msg"]
+
+
+class _CurrentWithLimit(BaseModel):
+    """
+    A throwaway current model whose list field allows at most two entries.
+    """
+    items: Annotated[list[_Inner], Field(max_length=2)] = []
+
+
+class _CurrentWithoutLimit(BaseModel):
+    """
+    A throwaway current model whose list field has no limit.
+    """
+    items: list[_Inner] = []
+
+
+@pytest.mark.parametrize(
+    "value, current",
+    [
+        pytest.param(lambda: deque([{"value": 1}] * 5), _CurrentWithLimit, id="sized-over-limit"),
+        pytest.param(
+            lambda: (item for item in [{"value": 1}] * 5),
+            _CurrentWithoutLimit,
+            id="unsized-field-without-limit",
+        ),
+        pytest.param(lambda: (item for item in [{"value": 1}] * 5), None, id="no-current-model"),
+    ],
+)
+def test_pruning_reads_in_full_what_has_a_length_or_no_limit(value, current):
+    # A value with a length is in memory already and is read in full, even
+    # over the current limit; an iterator under a field the current model
+    # does not limit, or with no current model, is read in full too.
+    kept = _prune_and_materialize({"items": value()}, _OuterIgnoring, current)
+
+    assert kept == {"items": [{"value": 1}] * 5}
+
+
+def test_pruning_stops_an_iterator_one_entry_over_the_current_limit():
+    # An iterator without a length under a field the current model limits to
+    # two entries is read to three, then refused as too_long at the field,
+    # as pydantic refuses it for the current model; the rest is never read.
+    endless = itertools.repeat({"value": 1})
+
+    with pytest.raises(ValidationError) as excinfo:
+        _prune_and_materialize({"items": endless}, _OuterIgnoring, _CurrentWithLimit)
+
+    [found] = excinfo.value.errors()
+    assert found["type"] == "too_long"
+    assert found["loc"] == ("items",)
+    assert found["ctx"] == {"field_type": "List", "max_length": 2, "actual_length": None}
+
+
+def test_endless_star_items_of_an_older_file_are_refused_promptly():
+    # An endless iterator of valid star items under staritems of a 0.3 file
+    # is read only to 100001 entries, one over the current limit, and then
+    # refused as too_long at the field, as a current file is. Before the fix
+    # the read never finished.
+    data = _written_at_0_3()
+    star_list = data["star_lists"][0]
+    star_list["staritems"] = itertools.repeat(star_list["staritems"][1])
+
+    with pytest.raises(ValidationError) as excinfo:
+        StarListSet.model_validate(data)
+
+    [found] = excinfo.value.errors()
+    assert found["type"] == "too_long"
+    assert found["loc"] == ("star_lists", 0, "staritems")
+    assert found["msg"] == "List should have at most 100000 items after validation, not more"
+
+
+def test_sized_star_items_over_the_limit_are_refused_with_their_count():
+    # Star items with a length, such as a deque, are read in full, not cut
+    # at one over the limit, so the 0.3 to 0.4 migration, which enforces
+    # that limit, refuses them with their real count.
+    data = _written_at_0_3()
+    star_list = data["star_lists"][0]
+    star_list["staritems"] = deque([star_list["staritems"][1]] * (_0_4_MAX_STARITEMS + 7))
+
+    with pytest.raises(ValidationError) as excinfo:
+        StarListSet.model_validate(data)
+
+    assert "star_lists[0].staritems has 100007 entries" in excinfo.value.errors()[0]["msg"]
+
+
+@pytest.mark.parametrize("generation", OLDER_GENERATIONS)
+def test_frozen_set_of_an_older_generation_is_upgraded_like_its_dict(generation):
+    # A frozen StarListSet of an older generation passed whole is read as the
+    # fields it was given and upgraded, with the warning, to what the same
+    # data as a dict gives. Before the fix it was refused as model_type.
+    data, _ = _before_after_pair(generation)
+    instance = _MIGRATIONS[generation].model.model_validate(copy.deepcopy(data))
+
+    with pytest.warns(SchemaMigrationWarning):
+        expected = StarListSet.model_validate(data)
+    with pytest.warns(SchemaMigrationWarning):
+        result = StarListSet.model_validate(instance)
+
+    assert result == expected
+
+
+@pytest.mark.parametrize("generation", OLDER_GENERATIONS)
+def test_validate_as_written_reads_a_frozen_set_as_its_fields(generation):
+    # validate_as_written reads a frozen StarListSet of an older generation
+    # as the fields it was given, like StarListSet does, and validates them
+    # against the frozen model of that generation, without a warning.
+    data, _ = _before_after_pair(generation)
+    instance = _MIGRATIONS[generation].model.model_validate(copy.deepcopy(data))
+
+    result = validate_as_written(instance)
+
+    assert isinstance(result, _MIGRATIONS[generation].model)
+    assert result == validate_as_written(data)
+
+
+def test_migration_warning_names_the_keys_a_legacy_file_loses():
+    # A legacy file carrying bias and photometry_software, which the legacy
+    # schema does not define, loses them unread; the one migration warning
+    # names them, sorted, without their values.
+    data, _ = _before_after_pair("legacy")
+    for star_list in data["star_lists"]:
+        star_list["bias"] = 1234.5
+        star_list["photometry_software"] = ["bandaid 1.2.3"]
+
+    with pytest.warns(SchemaMigrationWarning) as record:
+        StarListSet.model_validate(data)
+
+    assert len(record) == 1
+    message = str(record[0].message)
+    assert message.endswith(
+        "; keys the file's schema does not define were dropped unread: "
+        "'star_lists[].bias', 'star_lists[].photometry_software'."
+    )
+    assert "1234.5" not in message
+    assert "bandaid" not in message
+
+
+def test_migration_warning_names_the_keys_a_0_3_file_loses_at_every_level():
+    # The keys a 0.3 file carries that the 0.3 schema does not define, at the
+    # set, star list and star item levels, are named once each in the
+    # warning, however many star lists or star items carry them. This relies
+    # on the extra keys pipeline, instrument_notes and flag that
+    # _written_at_0_3 (before.json of the 0.3 migration) carries.
+    with pytest.warns(SchemaMigrationWarning) as record:
+        StarListSet.model_validate(_written_at_0_3())
+
+    assert len(record) == 1
+    assert str(record[0].message).endswith(
+        "; keys the file's schema does not define were dropped unread: "
+        "'pipeline', 'star_lists[].instrument_notes', 'star_lists[].staritems[].flag'."
+    )
+
+
+def test_migration_warning_names_no_keys_when_none_were_dropped():
+    # A file with no keys its schema does not define, and upgrade() called
+    # directly, which drops nothing before the migrations, warn without the
+    # clause naming dropped keys.
+    data, _ = _before_after_pair("legacy")
+    with pytest.warns(SchemaMigrationWarning) as record:
+        StarListSet.model_validate(data)
+    with pytest.warns(SchemaMigrationWarning) as direct:
+        upgrade(_written_at_0_3())
+
+    assert "dropped unread" not in str(record[0].message)
+    assert "dropped unread" not in str(direct[0].message)
+
+
+@pytest.mark.parametrize("data", [[1], None, "star lists"], ids=["list", "none", "str"])
+def test_upgrade_refuses_data_that_is_not_a_mapping(data):
+    # upgrade() needs a mapping to read the version from; anything else is a
+    # TypeError naming its type, not an AttributeError from inside upgrade.
+    with pytest.raises(TypeError, match=re.escape(f"got {type(data).__name__}")) as excinfo:
+        upgrade(data)
+
+    assert str(excinfo.value).startswith("upgrade() needs a dict")
+
+
+def test_validate_as_written_hands_a_non_mapping_to_the_current_model():
+    # validate_as_written has no version to read from a list, so it hands it
+    # to StarListSet for the usual ValidationError.
+    with pytest.raises(ValidationError) as excinfo:
+        validate_as_written([1])
+
+    assert excinfo.value.errors()[0]["type"] == "model_type"
+
+
+def test_a_dropped_top_level_key_is_named_without_a_dot():
+    # A key dropped from the starlist set itself is named as it is, with no
+    # leading dot or path.
+    data, _ = _before_after_pair("legacy")
+    data["pipeline"] = "v2"
+
+    with pytest.warns(SchemaMigrationWarning) as record:
+        StarListSet.model_validate(data)
+
+    assert str(record[0].message).endswith("dropped unread: 'pipeline'.")
+
+
+@pytest.mark.parametrize(
+    "key, name",
+    [
+        (b"extra", "star_lists[][b'extra']"),
+        (12, "star_lists[][12]"),
+        ("12", "star_lists[].12"),
+    ],
+    ids=["bytes", "int", "str-of-digits"],
+)
+def test_a_dropped_key_that_is_not_a_string_is_named_without_error(key, name):
+    # A key of a star list that is not a string, which only data built in
+    # Python can hold, is dropped like any other and named by its repr() in
+    # brackets, so an int key is neither taken for a list index nor named
+    # like the str key of the same digits.
+    data = _written_at_0_3()
+    data["star_lists"][0][key] = 1
+
+    with pytest.warns(SchemaMigrationWarning) as record:
+        StarListSet.model_validate(data)
+
+    assert repr(name) in str(record[0].message)
+
+
+def test_a_dropped_key_name_is_escaped_in_the_warning():
+    # A dropped key name is file data: a newline in it, which could forge a
+    # line of the validate command's output, is escaped, and a comma in it
+    # cannot pass for two names, because each name is printed as its repr().
+    data = _written_at_0_3()
+    key = "a, b\nevil.json: valid (schema version 0.4.1)"
+    data["star_lists"][0][key] = 1
+
+    with pytest.warns(SchemaMigrationWarning) as record:
+        StarListSet.model_validate(data)
+
+    message = str(record[0].message)
+    assert "\n" not in message
+    assert repr(f"star_lists[].{key}") in message
+
+
+def test_the_warning_lists_at_most_twenty_dropped_keys():
+    # A file with 25 dropped keys has the first 20, sorted, named in the
+    # warning, followed by how many more there are.
+    data = _written_at_0_3()
+    del data["pipeline"]
+    for star_list in data["star_lists"]:
+        star_list.pop("instrument_notes", None)
+        for item in star_list["staritems"]:
+            item.pop("flag", None)
+    names = [f"extra_{index:02}" for index in range(25)]
+    for name in names:
+        data[name] = 1
+
+    with pytest.warns(SchemaMigrationWarning) as record:
+        StarListSet.model_validate(data)
+
+    message = str(record[0].message)
+    assert message.endswith(
+        "dropped unread: " + ", ".join(repr(name) for name in names[:20]) + " and 5 more."
+    )
+
+
+def test_migration_warning_is_attributed_to_the_caller():
+    # Through StarListSet the warning is attributed to this package's module,
+    # so a filter on module="aavso_starlist_schema" matches it; from
+    # upgrade() it is attributed to the code that called upgrade().
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always", SchemaMigrationWarning)
+        StarListSet.model_validate(_written_at_0_3())
+        upgrade(_written_at_0_3())
+
+    assert [Path(warning.filename).name for warning in record] == [
+        "aavso_starlist_schema.py",
+        Path(__file__).name,
+    ]

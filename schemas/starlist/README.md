@@ -242,9 +242,19 @@ file from an older generation goes through three steps:
    One-shot iterators such as generators and list-like containers (deques,
    arrays and the like) under list fields are first read, once, into lists;
    under a list of plain values such as `photometry_software` only that one
-   level is read, and its items are validated as given. A model instance of
+   level is read, and its items are validated as given. An iterator without
+   a length is read up to one entry more than the current model allows
+   (100001 for `staritems`, which allows 100000), so an endless one is
+   refused for having too many entries, as a current file is, instead of
+   hanging the read; under a field with no limit (`star_lists`,
+   `photometry_software`) it is read in full. An error raised while reading
+   the value under a list field is a `ValidationError` of type
+   `iteration_error` located at the entry it could not read, as pydantic
+   reports it for a current file; at the field if the value cannot be
+   iterated at all (`list_type`, as for a closed file). A model instance of
    the file's own generation is read as its fields and validated like a
-   dict. Everything else is validated as given.
+   dict; the whole set may be such an instance too. Everything else is
+   validated as given.
 2. It is converted to plain JSON data (lists are copied, other mappings
    become dicts, model instances dicts of their fields, enum members their
    values; any other value is kept a scalar, even one that is iterable)
@@ -268,30 +278,42 @@ file and validates it the same way, or, with `as_written=True`, as
 
 The first two steps are also available on their own:
 
-- `validate_as_written(data)` takes the parsed dict and validates it against
-  the schema of its own generation, without migrating it to a newer
+- `validate_as_written(data)` takes the parsed dict (or a frozen
+  `StarListSet` of an older generation, read as its fields) and validates it
+  against the schema of its own generation, without migrating it to a newer
   generation. It returns the validated model: a `StarListSet` for a current
   file (which states the current version), the frozen model for an older one.
+  Otherwise `validate_as_written` hands its input to the model of its
+  generation as given: it drops no keys and reads an iterator under a list
+  field in full, so the bounded read above applies only to `StarListSet`.
 - `upgrade(data)` takes the parsed dict and returns a dict in the current
-  generation, stamped with the current version. The result is always a copy; the
-  input is not modified. It does not validate, and it passes the values
+  generation, stamped with the current version; a value that is not a
+  mapping, such as a list, raises `TypeError`. The result is always a copy;
+  the input is not modified. It does not validate, and it passes the values
   inside to the migrations as given, without converting them to plain data.
+  (`upgrade()` called directly has no step 1, so its warning names no
+  dropped keys.)
 
 A file from an older version of the current generation needs no migration; it
 is read without a warning, and the object states the current version.
 
-Version handling applies to mappings and JSON input, not to `from_attributes`
-validation.
+Version handling applies to mappings, JSON input and instances of the frozen
+`StarListSet` of an older generation (read as the fields they were given), not
+to `from_attributes` validation.
 
 A file from any newer version, even one in the same generation, is refused
 with `NewerSchemaVersionError`: this version cannot know what changed, and a
 newer version in the same generation (a patch while `0.y.z`, a minor from
-1.0.0 on) may add fields it would silently drop. The `schema_version` pattern in the generated schema lists exactly
-the versions that are read without upgrading.
+1.0.0 on) may add fields it would silently drop. The `schema_version` pattern
+in the generated schema lists exactly the versions that are read without
+upgrading.
 
-When a file is upgraded, a `SchemaMigrationWarning` is issued naming the
-original version, the new version and what changed. The upgraded object is
-derived data; the submitted file remains the record.
+When a file is upgraded, a single `SchemaMigrationWarning` is issued naming
+the original version, the new version, what changed and the keys dropped
+unread in step 1, by name only, each as its Python `repr()` and at most 20
+of them (such as `'star_lists[].bias'` for a legacy file that carries
+`bias`). The upgraded object is derived data; the submitted
+file remains the record.
 
 A file that is not valid for the schema version it states fails step 1 with the
 usual pydantic `ValidationError`; that is a problem with the file. Validation
