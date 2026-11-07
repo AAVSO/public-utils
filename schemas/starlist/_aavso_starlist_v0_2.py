@@ -9,11 +9,7 @@ This module is frozen:
 
 - Do not edit the models.
   ``aavso_starlist_schema_data/v0.2.1/schema_definition.json`` records the
-  schema they generate, and the tests fail if the two differ. The one
-  exception is ``fail_fast=True`` on the list fields: a validation-cost
-  setting that changes nothing in the schema this module generates or in
-  which files are valid, added with schema version 0.4.1 (issue #13) so
-  that validating a malformed older file stays cheap.
+  schema they generate, and the tests fail if the two differ.
 - Do not import anything from ``aavso_starlist_schema``. A frozen model that
   shares code with the live models changes whenever they do.
 
@@ -356,7 +352,6 @@ class StarList(BaseModel):
     staritems: Annotated[
         list[StarItem],
         Field(
-            fail_fast=True,
             title="Star Items",
             description="List of stars detected in the image",
             json_schema_extra=dict(unit="none"),
@@ -387,7 +382,6 @@ class StarListSet(BaseModel):
     star_lists: Annotated[
         list[StarList],
         Field(
-            fail_fast=True,
             title="Star List Set",
             description="List of star lists",
             json_schema_extra=dict(unit="none"),

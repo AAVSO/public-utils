@@ -13,7 +13,7 @@ from typing import List  # noqa: UP035 -- the bare typing.List is tested
 
 import numpy as np
 import pytest
-from _helpers import float_fields, flooded
+from _helpers import float_fields
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 import _aavso_starlist_legacy
@@ -1903,31 +1903,3 @@ def test_frozen_0_3_fields_reject_infinity(model, field_name):
     assert excinfo.value.errors()[0]["loc"] == (field_name,)
 
 
-@pytest.mark.parametrize(
-    "generation, path, entry",
-    [
-        pytest.param(generation, path, entry, id=f"{generation}-{path[-1]}")
-        for generation in OLDER_GENERATIONS
-        for path, entry in [
-            (("star_lists",), {}),
-            (("star_lists", 0, "staritems"), {}),
-            (("star_lists", 0, "photometry_software"), 1),
-        ]
-        # Only the 0.3 models define photometry_software.
-        if generation == "0.3" or path[-1] != "photometry_software"
-    ],
-)
-def test_older_file_validation_stops_at_the_first_bad_entry_of_a_list_field(
-    generation, path, entry
-):
-    # The frozen models stop at the first bad entry of a list field too
-    # (fail_fast), so validate_as_written reports a malformed older file with
-    # many bad entries as briefly, and as cheaply, as one with a single one.
-    before, _ = _before_after_pair(generation)
-    with pytest.raises(ValidationError) as one:
-        validate_as_written(flooded(before, path, entry, 1))
-    with pytest.raises(ValidationError) as many:
-        validate_as_written(flooded(before, path, entry, 10_000))
-
-    assert many.value.error_count() == one.value.error_count()
-    assert {error["loc"][: len(path) + 1] for error in many.value.errors()} == {(*path, 0)}

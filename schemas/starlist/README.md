@@ -154,9 +154,7 @@ require the current files to match the archive for `SCHEMA_VERSION`, so a
 schema change without a version bump fails `pytest`, and CI rejects a pull
 request that modifies or deletes an archived file. The tests also require each
 frozen model to generate exactly the newest archived schema of its generation
-(`legacy/` for the legacy models), which is what keeps it frozen
-(`fail_fast=True` on the list fields, which leaves the schema and the set of
-valid files unchanged, is the one exception).
+(`legacy/` for the legacy models), which is what keeps it frozen.
 
 #### Changing the schema
 
@@ -303,15 +301,16 @@ original version, the new version and what changed. The upgraded object is
 derived data; the submitted file remains the record.
 
 A file that is not valid for the schema version it states fails step 1 with the
-usual pydantic `ValidationError`; that is a problem with the file. Validation
-stops at the first bad entry of a list field, so an invalid file reports its
-first bad star item, star list or software entry rather than all of them. A
-file a migration refuses in step 2, because the new generation cannot hold
-it, raises the same `ValidationError`. The 0.3 to 0.4 migration drops keys
-the 0.3 schema did not define (the 0.3 reader ignored them) and turns a
-`stack` of 0 or less into `null`, but a float that is infinite or NaN, a
-string longer than 0.4.0 allows, or a star list of more than 100000 star
-items has no 0.4 form:
+usual pydantic `ValidationError`; that is a problem with the file. For a file
+of the current generation, validation stops at the first bad entry of a list
+field, so it reports its first bad star item, star list or software entry
+rather than all of them; a file of an older generation is checked against its
+frozen model, which reports every bad entry. A file a migration refuses in
+step 2, because the new generation cannot hold it, raises the same
+`ValidationError`. The 0.3 to 0.4 migration drops keys the 0.3 schema did not
+define (the 0.3 reader ignored them) and turns a `stack` of 0 or less into
+`null`, but a float that is infinite or NaN, a string longer than 0.4.0
+allows, or a star list of more than 100000 star items has no 0.4 form:
 the migration raises `ValueError` naming the field, and `upgrade()` called
 directly raises that `ValueError` itself. The field is named in the error
 message, not in pydantic's `loc` (which is empty), and only the first such
