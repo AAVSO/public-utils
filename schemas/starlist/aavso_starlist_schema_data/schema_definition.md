@@ -2,7 +2,7 @@
 
 | Title | JSON Field | Type | Unit | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
-| Starlist Schema Version | schema_version | str | none | The version of this schema that the file was written against, assigned by AAVSO | "0.4.0" |
+| Starlist Schema Version | schema_version | str | none | The version of this schema that the file was written against, assigned by AAVSO | "0.4.1" |
 | Star List Set | star_lists | list[StarList] | none | List of star lists | [] |
 
 
@@ -51,6 +51,6 @@
 | Declination | dec | float | degree | Declination of the star (in decimal degrees) at the epoch specified in the metadata | -12.12345 |
 | Star Count | tot_count | float | adu | Total integrated counts of the star, background-subtracted | 156700.4 |
 | Count Error | count_err | float | adu | Error in the total integrated counts of the star | 15300.1 |
-| Background counts | bkgd_count | float | adu / pixel | Background count level in the vicinity of the star | 1209.45 |
+| Background counts | bkgd_count | float | adu | Background count level per pixel in the vicinity of the star | 1209.45 |
 | Peak Counts | peak_count | float | adu | Peak counts of the star | 31454.963 |
 | Star FWHM | fwhm | float \| None | pixel | Full width at half maximum of this star's image, as opposed to the typical value for the whole image in the star list's `fwhm`. None if not available. | 3.4 |

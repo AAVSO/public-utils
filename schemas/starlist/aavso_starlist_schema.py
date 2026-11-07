@@ -37,13 +37,13 @@ except ImportError:  # pragma: no cover - source tree without the generated file
 # deliberately independent of the package version above: bump it whenever the
 # generated schema under aavso_starlist_schema_data/ changes. The archive test
 # fails if the generated schema changes without bumping this constant.
-SCHEMA_VERSION = "0.4.0"
+SCHEMA_VERSION = "0.4.1"
 
 # Every released schema version from 0.2.0 on, oldest first; add each new
 # SCHEMA_VERSION here. Listed in the code, rather than read from the archive
 # folders, so the versions this reader accepts never depend on the filesystem.
 # The archive test fails if this differs from the archived versions.
-_RELEASED_VERSIONS = ("0.2.0", "0.2.1", "0.3.0", "0.3.1", "0.3.2", "0.4.0")
+_RELEASED_VERSIONS = ("0.2.0", "0.2.1", "0.3.0", "0.3.1", "0.3.2", "0.4.0", "0.4.1")
 
 __all__ = [
     "AAVSOFilters",
@@ -275,8 +275,8 @@ class StarItem(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
         float,
         Field(
             title="Background counts",
-            description="Background count level in the vicinity of the star",
-            json_schema_extra=dict(unit="adu / pixel"),
+            description="Background count level per pixel in the vicinity of the star",
+            json_schema_extra=dict(unit="adu"),
             examples=[1209.45]
         )
     ]

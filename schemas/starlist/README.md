@@ -120,7 +120,7 @@ legacy file and upgraded with a warning, see below). The generated
 
 | Change | From 1.0.0 on | While 0.y.z |
 | --- | --- | --- |
-| Description/docs only | patch | patch |
+| Description, unit or other annotation only | patch | patch |
 | New optional field | minor | patch |
 | New required field, removal, changed meaning | major | minor |
 

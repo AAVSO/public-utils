@@ -88,13 +88,13 @@
           "unit": "adu"
         },
         "bkgd_count": {
-          "description": "Background count level in the vicinity of the star",
+          "description": "Background count level per pixel in the vicinity of the star",
           "examples": [
             1209.45
           ],
           "title": "Background counts",
           "type": "number",
-          "unit": "adu / pixel"
+          "unit": "adu"
         },
         "peak_count": {
           "description": "Peak counts of the star",
@@ -441,9 +441,9 @@
     "schema_version": {
       "description": "The version of this schema that the file was written against, assigned by AAVSO",
       "examples": [
-        "0.4.0"
+        "0.4.1"
       ],
-      "pattern": "^(0\\.4\\.0)$",
+      "pattern": "^(0\\.4\\.0|0\\.4\\.1)$",
       "title": "Starlist Schema Version",
       "type": "string",
       "unit": "none"
@@ -467,5 +467,5 @@
   ],
   "title": "StarListSet",
   "type": "object",
-  "version": "0.4.0"
+  "version": "0.4.1"
 }

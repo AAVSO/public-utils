@@ -383,6 +383,36 @@ def test_bias_markdown_row():
     assert cells[5] == "1000.0 |"
 
 
+@pytest.mark.parametrize(
+    "klass, field_name",
+    [
+        pytest.param(klass, field_name, id=f"{klass.__name__}-{field_name}")
+        for klass, field_name in [
+            (StarItem, "tot_count"),
+            (StarItem, "count_err"),
+            (StarItem, "bkgd_count"),
+            (StarItem, "peak_count"),
+            (StarList, "bias"),
+            (StarList, "largest_usable_adu_value"),
+        ]
+    ],
+)
+def test_levels_in_adu_share_one_unit(klass, field_name):
+    # Every field that holds a count or a level in adu states the same unit,
+    # plain "adu", so that bias and bkgd_count, which are compared, agree.
+    # bkgd_count is per pixel; its description says so in words.
+    assert klass.model_fields[field_name].json_schema_extra["unit"] == "adu"
+
+
+def test_bkgd_count_markdown_row():
+    # The markdown table writes bkgd_count with the unit adu and a
+    # description that says the level is per pixel.
+    row = _markdown_row(StarItem, "bkgd_count")
+
+    assert row["Unit"] == "adu"
+    assert row["Description"] == "Background count level per pixel in the vicinity of the star"
+
+
 @pytest.mark.parametrize("bias", [1000.0, 0.0, None], ids=["number", "zero", "none"])
 def test_bias_survives_a_table_round_trip(bias):
     # bias is carried in the table metadata, a number or None, so a star list
