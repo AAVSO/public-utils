@@ -27,6 +27,7 @@ from pydantic_core import PydanticSerializationError, to_jsonable_python
 import _aavso_starlist_legacy  # frozen models of the legacy generation
 import _aavso_starlist_v0_2  # frozen models of the 0.2 generation
 import _aavso_starlist_v0_3  # frozen models of the 0.3 generation
+import _aavso_starlist_v0_4  # noqa: F401 - frozen models of the 0.4 generation, used from 1.0.0
 
 try:
     from _aavso_version import __version__  # top-level sibling, written by hatch-vcs
