@@ -163,9 +163,10 @@ generates, archives and runs the tests.
    argument in place. Through `model_validate_json`, `model_validate` and the
    constructor, the dict holds only plain JSON data (dicts, lists, strings,
    numbers, booleans and `None`): data built in Python is converted once the
-   frozen model has accepted it, keys the 0.3 models do not define already
-   dropped. `upgrade()` called directly validates and converts nothing. The `_Migration` docstring
-   has the details.
+   frozen model has accepted it, and the migrations receive only the keys
+   that the frozen model of the file's own generation defines, so every value
+   they see was validated. `upgrade()` called directly validates and converts
+   nothing. The `_Migration` docstring has the details.
 6. *New generation only.* Add a `before.json`/`after.json` pair of sample
    files under
    `tests/data/migrations/<old generation>_to_<new generation>/`, e.g.
@@ -194,12 +195,13 @@ Use the standard pydantic methods. `StarListSet.model_validate_json(text)`,
 file from an older generation goes through three steps:
 
 1. It is validated against the frozen model of its own generation: is this
-   file valid for the schema version it states? Keys the 0.3 models do not
-   define are dropped first, at every level, without their values being
-   read: the frozen models ignore them and the migration to 0.4.0 drops
-   them. The rest is validated as given, apart from one-shot iterators such
-   as generators and list-like containers (deques, arrays and the like),
-   which are first read, once, into lists.
+   file valid for the schema version it states? Keys that frozen model does
+   not define are dropped first, at every level, without their values being
+   read: the frozen model ignores them, and nothing downstream may use a
+   value no schema validated, even under a key a later generation defines.
+   One-shot iterators such as generators and list-like containers (deques,
+   arrays and the like) under list fields are first read, once, into lists.
+   Everything else is validated as given.
 2. It is converted to plain JSON data (tuples become lists, other mappings
    dicts, model instances dicts of their fields, enum members their values)
    and upgraded to the current schema version with `upgrade()`, as a plain

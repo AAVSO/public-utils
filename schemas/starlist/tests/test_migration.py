@@ -13,7 +13,7 @@ from types import MappingProxyType
 import numpy as np
 import pytest
 from _helpers import float_fields
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 import _aavso_starlist_legacy
 import _aavso_starlist_v0_2
@@ -37,6 +37,7 @@ from aavso_starlist_schema import (
     _generation,
     _Migration,
     _parse_semver,
+    _prune_and_materialize,
     upgrade,
     validate_as_written,
 )
@@ -702,12 +703,13 @@ def test_migration_reached_through_the_model_sees_only_plain_data(shape, mocker)
     assert seen[0]["star_lists"] == _legacy_data_json()["star_lists"]
 
 
-def test_key_the_frozen_model_ignores_but_0_3_defines_reaches_the_migration(mocker):
-    # The raw input is converted, not a dump of the validated frozen model, so
-    # a key the legacy model ignores but the 0.3 models define (and so a
-    # migration may use) is still there, as the file holds it. A key no model
-    # up to 0.3 defines is dropped unread before validation instead; see
-    # test_values_under_undefined_keys_of_an_older_file_are_not_read.
+def test_keys_the_frozen_model_ignores_do_not_reach_the_migration(mocker):
+    # Keys the legacy model does not define are dropped before validation,
+    # even those a later generation defines (bias, photometry_software, star
+    # item fwhm): no schema validated their values, so no migration may use
+    # them, and the upgraded file has the defaults a legacy file gets. Before
+    # the fix they were pruned by the 0.3 field set and reached the
+    # migrations unvalidated.
     seen = []
 
     def _record_argument(data):
@@ -733,14 +735,19 @@ def test_key_the_frozen_model_ignores_but_0_3_defines_reaches_the_migration(mock
     star_list = data["star_lists"][0].model_dump()
     star_list["staritems"][0] = MappingProxyType({**star_list["staritems"][0], "fwhm": 2.5})
     data["star_lists"][0] = MappingProxyType(
-        {**star_list, "photometry_software": ("kept",)}
+        {**star_list, "bias": 5.0, "photometry_software": ("kept",)}
     )
 
     with pytest.warns(SchemaMigrationWarning):
-        StarListSet.model_validate(data)
+        result = StarListSet.model_validate(data)
 
-    assert seen[0]["star_lists"][0]["photometry_software"] == ["kept"]
-    assert seen[0]["star_lists"][0]["staritems"][0]["fwhm"] == 2.5
+    received = seen[0]["star_lists"][0]
+    assert "bias" not in received
+    assert "photometry_software" not in received
+    assert "fwhm" not in received["staritems"][0]
+    assert result.star_lists[0].bias is None
+    assert result.star_lists[0].photometry_software == ["unknown"]
+    assert result.star_lists[0].staritems[0].fwhm is None
 
 
 def test_upgrade_called_directly_passes_values_through_unconverted(mocker):
@@ -972,9 +979,9 @@ def test_0_2_file_is_upgraded_with_photometry_software_unknown(version):
 def test_0_2_file_with_photometry_software_already_gets_unknown(value):
     # The frozen 0.2 models ignore keys they do not define, so a 0.2 file may
     # carry a photometry_software key, valid for 0.3 or not. The 0.2 schema
-    # never validated it, so the migration replaces it with ["unknown"] like
-    # any other 0.2 star list, and a file valid for 0.2 is always valid after
-    # migration.
+    # never validated it, so it is dropped before the migrations and the 0.2
+    # migration sets ["unknown"] like on any other 0.2 star list: a file
+    # valid for 0.2 is always valid after migration.
     data = copy.deepcopy(_written_at_0_2("0.2.1"))
     data["star_lists"][0]["photometry_software"] = value
 
@@ -1441,23 +1448,40 @@ def test_older_file_with_a_datetime_obs_time_is_rejected(generation):
 
 def _unreadable():
     """
-    A generator that fails if anything reads it.
+    Build a generator that fails if anything reads it.
+
+    Returns
+    -------
+    generator
+        A generator whose first ``next`` raises ``AssertionError``.
     """
-    raise AssertionError("a value under a key the 0.3 models do not define was read")
+    raise AssertionError("a value that must not be read was read")
     yield  # makes this a generator; never reached
+
+
+def _closed_file():
+    """
+    Build a closed text file, which raises ``ValueError`` if iterated.
+
+    Returns
+    -------
+    io.StringIO
+        A closed ``StringIO``.
+    """
+    closed = io.StringIO("notes")
+    closed.close()
+    return closed
 
 
 @pytest.mark.parametrize("generation", OLDER_GENERATIONS)
 def test_values_under_undefined_keys_of_an_older_file_are_not_read(generation):
-    # A key the 0.3 models do not define is dropped at every level before
-    # anything reads its value: the frozen models ignored it and the 0.3
-    # migration drops it, so reading it could only fail (a closed file) or
-    # never finish (an endless generator). Each value here fails if read.
+    # A key no frozen model defines is dropped at every level before anything
+    # reads its value: the frozen model ignores it, so reading it could only
+    # fail (a closed file) or never finish (an endless generator). Each value
+    # here fails if read.
     data, _ = _before_after_pair(generation)
-    closed = io.StringIO("notes")
-    closed.close()
     data["pipeline"] = _unreadable()
-    data["star_lists"][0]["instrument_notes"] = closed
+    data["star_lists"][0]["instrument_notes"] = _closed_file()
     data["star_lists"][0]["staritems"][0]["flag"] = _unreadable()
 
     with pytest.warns(SchemaMigrationWarning):
@@ -1468,20 +1492,119 @@ def test_values_under_undefined_keys_of_an_older_file_are_not_read(generation):
     assert "flag" not in result["star_lists"][0]["staritems"][0]
 
 
-def test_every_older_generation_is_upgraded_through_the_0_3_step():
-    # _materialize_defined drops the keys the 0.3 models do not define from
-    # a file of any older generation, unread, because every chain ends in
-    # the 0.3 migration, which drops them anyway. The frozen models of a
-    # generation after 0.3 forbid unknown keys, so such a file must not be
-    # pruned before its own validation: when one is added, decide what
-    # _read_older_versions drops for it.
-    current = _generation(SCHEMA_VERSION)
-    for generation in _MIGRATIONS:
-        visited = []
-        while generation != current:
-            visited.append(generation)
-            generation = _generation(_MIGRATIONS[generation].target)
-        assert "0.3" in visited, visited
+# Keys the 0.3 models define but the frozen models of an earlier generation
+# do not, each with the level it is on.
+_DEFINED_FROM_0_3 = {
+    "legacy": [("star list", "bias"), ("star list", "photometry_software"),
+               ("star list", "absolute_focus"), ("star item", "fwhm")],
+    "0.2": [("star list", "bias"), ("star list", "photometry_software"),
+            ("star item", "fwhm")],
+}
+
+
+@pytest.mark.parametrize(
+    "generation, level, key",
+    [
+        pytest.param(generation, level, key, id=f"{generation}-{key}")
+        for generation, keys in _DEFINED_FROM_0_3.items()
+        for level, key in keys
+    ],
+)
+@pytest.mark.parametrize("make_value", [_unreadable, _closed_file], ids=["generator", "closed"])
+def test_keys_a_later_generation_defines_are_not_read_from_an_older_file(
+    generation, level, key, make_value
+):
+    # The pruning follows the frozen model of the file's own generation, not
+    # the 0.3 models, so a key only a later generation defines is dropped
+    # unread from a legacy or 0.2 file like any other unknown key, and the
+    # upgraded file has that field's default. Before the fix an endless
+    # generator there hung the read and a closed file failed it.
+    data, _ = _before_after_pair(generation)
+    star_list = data["star_lists"][0]
+    record = star_list if level == "star list" else star_list["staritems"][0]
+    record[key] = make_value()
+
+    with pytest.warns(SchemaMigrationWarning):
+        result = StarListSet.model_validate(data)
+
+    upgraded = result.star_lists[0]
+    if level == "star item":
+        upgraded = upgraded.staritems[0]
+    expected = ["unknown"] if key == "photometry_software" else None
+    assert getattr(upgraded, key) == expected
+
+
+@pytest.mark.parametrize("value", ["garbage", float("inf"), 5])
+def test_legacy_bias_is_dropped_whatever_its_value(value):
+    # No legacy schema defined bias, so its value was never validated and is
+    # dropped before the migrations: a wrong value is not reported as a bug
+    # in a migration (MigrationResultError), an infinite one is not refused
+    # as unupgradeable, and a valid-looking one is not carried over.
+    data, _ = _before_after_pair("legacy")
+    data["star_lists"][0]["bias"] = value
+
+    with pytest.warns(SchemaMigrationWarning):
+        result = StarListSet.model_validate(data)
+
+    assert result.star_lists[0].bias is None
+
+
+@pytest.mark.parametrize("generation", OLDER_GENERATIONS)
+@pytest.mark.parametrize("make_value", [_unreadable, _closed_file], ids=["generator", "closed"])
+def test_wrong_value_under_a_scalar_field_is_reported_where_it_is(generation, make_value):
+    # A value under a scalar field is validated as given, not read first, so
+    # a closed file or a generator as observer is reported by pydantic as
+    # not a string at its own location. Before the fix it was iterated: the
+    # closed file failed as a value_error with an empty location, and an
+    # endless generator never finished.
+    data, _ = _before_after_pair(generation)
+    data["star_lists"][0]["observer"] = make_value()
+
+    with pytest.raises(ValidationError) as excinfo:
+        StarListSet.model_validate(data)
+
+    error = excinfo.value.errors()[0]
+    assert error["type"] == "string_type"
+    assert error["loc"] == ("star_lists", 0, "observer")
+
+
+class _Inner(BaseModel):
+    """
+    A throwaway nested model for the pruning test.
+    """
+    value: int
+
+
+class _OuterForbidding(BaseModel):
+    """
+    A throwaway model that forbids extra keys, as a frozen 0.4 model would.
+    """
+    model_config = ConfigDict(extra="forbid")
+    items: list[_Inner]
+
+
+class _OuterIgnoring(BaseModel):
+    """
+    A throwaway model that ignores extra keys, as the older frozen models do.
+    """
+    items: list[_Inner] | None = None
+
+
+def test_pruning_keeps_unknown_keys_for_a_model_that_forbids_them():
+    # A frozen model that forbids extra keys (a future frozen 0.4 model) must
+    # see them to reject them, so the pruning keeps them, unread; a model
+    # that ignores them gets them dropped, unread. Each level follows its own
+    # model's config (the nested _Inner ignores extras either way), and a
+    # list of models given as a generator is read into a list.
+    data = {"items": (item for item in [{"value": 1, "extra": _unreadable()}]),
+            "extra": _unreadable()}
+    kept = _prune_and_materialize(data, _OuterForbidding)
+    assert list(kept) == ["items", "extra"]
+    assert kept["items"] == [{"value": 1}]
+
+    data = {"items": (item for item in [{"value": 1, "extra": _unreadable()}]),
+            "extra": _unreadable()}
+    assert _prune_and_materialize(data, _OuterIgnoring) == {"items": [{"value": 1}]}
 
 
 @pytest.mark.parametrize("generation", OLDER_GENERATIONS)
