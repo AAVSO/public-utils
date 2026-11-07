@@ -54,7 +54,8 @@ from aavso_starlist_schema import validate_file
 star_list_set = validate_file("starlists.json")
 
 # Validate the file against the schema of the version it states, without
-# upgrading it; returns the model of that version, no warning
+# upgrading it; returns the model of that version, no warning (a file from an
+# older release of the current generation is read as the current version)
 as_written = validate_file("starlists.json", as_written=True)
 ```
 
@@ -72,13 +73,15 @@ A console script is installed with the package:
 # exits with status 1
 aavso-starlist-schema validate <file>
 
-# Validate against the schema version the file states, without upgrading it
+# Validate against the schema version the file states, without upgrading it;
+# a file from an older release of the current generation is read as the
+# current version
 aavso-starlist-schema validate <file> --as-written
 
-# Write the JSON schema to <path>.json
+# Write the JSON schema to <path> with its suffix replaced by .json
 aavso-starlist-schema write-schema <path>
 
-# Write a markdown table to <path>.md
+# Write a markdown table to <path> with its suffix replaced by .md
 aavso-starlist-schema write-schema <path> --markdown
 ```
 

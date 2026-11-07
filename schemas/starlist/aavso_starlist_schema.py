@@ -1021,7 +1021,13 @@ def validate_as_written(data):
     model's frozen default in that field, a version the file never stated. To
     pass the result on, use ``model_dump(exclude_unset=True)``, or validate
     the raw data with `StarListSet` directly.
+
+    Data that is not a JSON object at all (a list, ``null``, a number) has no
+    version to read, so it is handed to `StarListSet` for the same
+    ``ValidationError`` that the default validation raises.
     """
+    if not isinstance(data, Mapping):
+        return StarListSet.model_validate(data)
     generation = _supported_generation(data)
     if generation in _MIGRATIONS:
         return _MIGRATIONS[generation].model.model_validate(data)
@@ -1053,8 +1059,10 @@ def validate_file(path, as_written=False):
         By default a `StarListSet` at the current schema version, upgraded if
         the file is from an older generation. With ``as_written=True``, what
         `validate_as_written` returns: a `StarListSet` if the file is in the
-        current generation, otherwise an instance of the frozen model of its
-        own generation, stating the file's own version.
+        current generation (a file from an older release of the current
+        generation is read as the current version), otherwise an instance of
+        the frozen model of its own generation, stating the file's own
+        version.
 
     Raises
     ------
@@ -1381,7 +1389,8 @@ def _report_validation(path, as_written=False):
     Raises
     ------
     SystemExit
-        With status 1 if the file is missing, is not JSON, is not valid for
+        With status 1 if the file is missing, cannot be read (a directory, a
+        permission problem), is not UTF-8 text, is not JSON, is not valid for
         its schema version or cannot be upgraded. The reason is written to
         stderr first, so a shell script can rely on the exit status alone.
 
@@ -1392,6 +1401,11 @@ def _report_validation(path, as_written=False):
     If the file was upgraded, the `SchemaMigrationWarning` message follows on
     a second line, instead of being issued as a warning.
     """
+    # Fire evaluates a command-line value that looks like a Python literal
+    # before passing it on, so a file named 123, True or None arrives as an
+    # int, a bool or None; make it a str again. (A float-looking name such
+    # as 2024.10 is already 2024.1 by then; nothing to do about that here.)
+    path = str(path)
     try:
         with warnings.catch_warnings(record=True) as caught:
             # Record the migration warning even where a warnings filter would
@@ -1400,6 +1414,13 @@ def _report_validation(path, as_written=False):
             model = validate_file(path, as_written=as_written)
     except FileNotFoundError:
         problem = "no such file"
+    except OSError as error:
+        # A directory, no read permission, and so on.
+        problem = f"cannot read the file: {error.strerror}"
+    except UnicodeDecodeError as error:
+        # A ValueError like JSONDecodeError, but a sibling of it, not a
+        # subclass: the file never reached the JSON parser.
+        problem = f"not UTF-8 text: {error}"
     except json.JSONDecodeError as error:
         problem = f"not valid JSON: {error}"
     except ValidationError as error:
@@ -1448,32 +1469,46 @@ def write_schema(filename, markdown=False, force=False):
     Raises
     ------
     SystemExit
-        With status 1 if the output file exists and ``force`` is ``False``;
-        the reason is written to stderr.
+        With status 1 if the output file exists (a dangling symlink included)
+        and ``force`` is ``False``, or if the file cannot be written: a
+        directory at the output path, a missing parent directory, no write
+        permission. The reason is written to stderr.
     """
     extension = ".md" if markdown else ".json"
-    # Make sure the path has the right suffix
-    p = Path(filename).with_suffix(extension)
-
-    if p.exists() and not force:
-        # Most likely the user meant `validate`, or forgot that the path is
-        # the output: never write over a file that is there unless told to.
-        print(
-            f"{p}: exists; not overwriting it (use --force to replace it)",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
+    # Fire evaluates a command-line value that looks like a Python literal
+    # before passing it on, so a path named 2024 or True arrives as an int or
+    # a bool; make it a str again. (A float-looking name such as 2024.10 is
+    # already 2024.1 by then; nothing to do about that here.) Then make sure
+    # the path has the right suffix.
+    p = Path(str(filename)).with_suffix(extension)
 
     if markdown:
         content = _generate_markdown()
     else:
         content = generate_star_list_set_schema()
 
+    # Most likely the user meant `validate`, or forgot that the path is the
+    # output: never write over a file that is there unless told to. Exclusive
+    # creation ("x") leaves that check to the OS, so nothing can appear
+    # between a check and the write, and a dangling symlink, which exists()
+    # reports as absent, is refused rather than written through.
+    #
     # The committed reference files are UTF-8 with LF line endings, and the
     # pre-commit hook regenerates them on any platform: fix both so the
     # output is byte-identical everywhere.
-    with p.open("w", encoding="utf-8", newline="\n") as f:
-        f.write(content)
+    try:
+        with p.open("w" if force else "x", encoding="utf-8", newline="\n") as f:
+            f.write(content)
+    except FileExistsError:
+        problem = "exists; not overwriting it (use --force to replace it)"
+    except OSError as error:
+        # A directory at the path, a missing parent, no write permission.
+        problem = f"cannot write the file: {error.strerror}"
+    else:
+        return
+
+    print(f"{p}: {problem}", file=sys.stderr)
+    raise SystemExit(1)
 
 
 def cli():

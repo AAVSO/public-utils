@@ -105,6 +105,32 @@ def not_json_file(tmp_path):
     return path
 
 
+@pytest.fixture
+def older_release_of_current_generation():
+    """
+    An older released version of ``SCHEMA_VERSION``'s generation.
+
+    Returns
+    -------
+    str
+        ``SCHEMA_VERSION`` with its last component set to 0, which must be a
+        released version; the test is skipped while ``SCHEMA_VERSION`` is the
+        first release of its generation.
+    """
+    *generation, patch = SCHEMA_VERSION.split(".")
+    if patch == "0":
+        pytest.skip(f"{SCHEMA_VERSION} is the first release of its generation")
+    return ".".join([*generation, "0"])
+
+
+@pytest.fixture
+def older_release_file(tmp_path, older_release_of_current_generation):
+    """A current-generation file stating an older release of the generation."""
+    data = _current_data()
+    data["schema_version"] = older_release_of_current_generation
+    return _write(tmp_path, "older_release.json", data)
+
+
 def test_validate_file_returns_a_current_model(current_file):
     # A current-version file reads without a warning (pytest treats an
     # unexpected SchemaMigrationWarning as an error) and states the current
@@ -158,6 +184,31 @@ def test_validate_file_as_written_on_a_current_file(current_file):
 
     assert isinstance(result, StarListSet)
     assert result.schema_version == SCHEMA_VERSION
+
+
+def test_validate_file_as_written_reads_an_older_release_as_current(older_release_file):
+    # Within a generation there is nothing to migrate: a file stating an
+    # older release of the current generation is a StarListSet, which states
+    # the current version, and nothing warns.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        result = validate_file(older_release_file, as_written=True)
+
+    assert isinstance(result, StarListSet)
+    assert result.schema_version == SCHEMA_VERSION
+
+
+@pytest.mark.parametrize("text", ["[]", "null"])
+def test_non_object_json_raises_validation_error(tmp_path, text):
+    # JSON that is not an object has no schema_version to read; both modes
+    # give pydantic's own error rather than a crash in the version lookup.
+    path = tmp_path / "not_an_object.json"
+    path.write_text(text, encoding="utf-8")
+
+    for as_written in (False, True):
+        with pytest.raises(ValidationError) as info:
+            validate_file(path, as_written=as_written)
+        assert info.value.errors()[0]["type"] == "model_type"
 
 
 def test_invalid_file_raises_validation_error_naming_the_field(invalid_file):
@@ -261,6 +312,33 @@ def test_validate_command_as_written_reports_the_files_own_version(generation, c
     assert captured.err == ""
 
 
+def test_validate_command_as_written_reports_an_older_release_as_current(
+    older_release_file, capsys
+):
+    # Same as the Python API: an older release of the current generation is
+    # reported as the current version, with no upgrade line and no warning.
+    _report_validation(str(older_release_file), as_written=True)
+
+    captured = capsys.readouterr()
+    assert captured.out == f"{older_release_file}: valid (schema version {SCHEMA_VERSION})\n"
+    assert captured.err == ""
+
+
+@pytest.mark.parametrize("text", ["[]", "null"])
+def test_validate_command_non_object_json_exits_1(tmp_path, capsys, text):
+    path = tmp_path / "not_an_object.json"
+    path.write_text(text, encoding="utf-8")
+
+    with pytest.raises(SystemExit) as info:
+        _report_validation(str(path), as_written=True)
+
+    assert info.value.code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith(f"{path}: invalid\n")
+    assert "model_type" in captured.err
+
+
 def test_validate_command_not_json_exits_1(not_json_file, capsys):
     with pytest.raises(SystemExit) as info:
         _report_validation(str(not_json_file))
@@ -279,6 +357,50 @@ def test_validate_command_missing_file_exits_1(tmp_path, capsys):
     captured = capsys.readouterr()
     assert captured.err == f"{missing}: invalid\nno such file\n"
     assert not missing.exists()
+
+
+def test_validate_command_unreadable_file_exits_1(tmp_path, capsys):
+    # A path that names a directory, or a file that cannot be read, is
+    # reported like any other invalid input, not as a traceback.
+    directory = tmp_path / "starlists.json"
+    directory.mkdir()
+    with pytest.raises(SystemExit) as info:
+        _report_validation(str(directory))
+
+    assert info.value.code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith(f"{directory}: invalid\ncannot read the file: ")
+
+    unreadable = _write(tmp_path, "unreadable.json", _current_data())
+    unreadable.chmod(0)
+    try:
+        if os.access(unreadable, os.R_OK):
+            pytest.skip("file permissions are not enforced here (root?)")
+        with pytest.raises(SystemExit) as info:
+            _report_validation(str(unreadable))
+    finally:
+        unreadable.chmod(0o600)
+
+    assert info.value.code == 1
+    assert capsys.readouterr().err.startswith(
+        f"{unreadable}: invalid\ncannot read the file: "
+    )
+
+
+def test_validate_command_not_utf8_exits_1(tmp_path, capsys):
+    # Bytes that are not UTF-8 never reach the JSON parser; the decoding
+    # error is reported in its place.
+    path = tmp_path / "utf16.json"
+    path.write_bytes(b"\xff\xfe{}")
+
+    with pytest.raises(SystemExit) as info:
+        _report_validation(str(path))
+
+    assert info.value.code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith(f"{path}: invalid\nnot UTF-8 text: ")
 
 
 @pytest.mark.parametrize(
@@ -317,6 +439,20 @@ def test_cli_validates_a_file(mocker, capsys):
     )
     cli()
     assert capsys.readouterr().out == f"{path}: valid (schema version {stated})\n"
+
+
+def test_cli_validates_a_file_whose_name_is_a_literal(tmp_path, monkeypatch, capsys):
+    # Fire turns an argument that looks like a Python literal into one, so a
+    # file named 123 arrives as an int; the command must still find the file.
+    monkeypatch.chdir(tmp_path)
+    _write(tmp_path, "123", _current_data())
+
+    monkeypatch.setattr("sys.argv", ["aavso-starlist-schema", "validate", "123"])
+    cli()
+
+    captured = capsys.readouterr()
+    assert captured.out == f"123: valid (schema version {SCHEMA_VERSION})\n"
+    assert captured.err == ""
 
 
 def test_cli_exit_status_for_an_invalid_file(invalid_file, mocker, capsys):

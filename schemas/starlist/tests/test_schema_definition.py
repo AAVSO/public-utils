@@ -651,6 +651,57 @@ def test_write_schema_force_overwrites(tmp_path):
     assert json.loads(out.read_text()) == json.loads(generate_star_list_set_schema())
 
 
+def test_write_schema_refuses_a_dangling_symlink(tmp_path, capsys):
+    # A symlink to nothing is not "absent": writing would create the target
+    # behind the user's back. It is refused like an existing file, and the
+    # target stays missing.
+    out = tmp_path / "schema.json"
+    target = tmp_path / "nowhere"
+    out.symlink_to(target)
+
+    with pytest.raises(SystemExit) as info:
+        write_schema(str(out))
+
+    assert info.value.code == 1
+    assert capsys.readouterr().err == (
+        f"{out}: exists; not overwriting it (use --force to replace it)\n"
+    )
+    assert out.is_symlink()
+    assert not target.exists()
+    assert sorted(tmp_path.iterdir()) == [out]
+
+
+def test_write_schema_directory_at_the_output_path_exits_1(tmp_path, capsys):
+    # --force cannot replace a directory; the failure is reported, not a
+    # traceback, and the directory is untouched.
+    out = tmp_path / "schema.json"
+    out.mkdir()
+
+    with pytest.raises(SystemExit) as info:
+        write_schema(str(out), force=True)
+
+    assert info.value.code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith(f"{out}: cannot write the file: ")
+    assert out.is_dir()
+    assert list(out.iterdir()) == []
+
+
+def test_write_schema_missing_parent_directory_exits_1(tmp_path, capsys):
+    # The output directory is not created; a missing one is reported.
+    out = tmp_path / "missing" / "schema"
+
+    with pytest.raises(SystemExit) as info:
+        write_schema(str(out))
+
+    assert info.value.code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith(f"{out.with_suffix('.json')}: cannot write the file: ")
+    assert list(tmp_path.iterdir()) == []
+
+
 @pytest.mark.parametrize("markdown_flag, suffix", [([], ".json"), (["--markdown"], ".md")])
 def test_cli_write_schema_writes_file(tmp_path, mocker, markdown_flag, suffix):
     # The console-script entry point parses the write-schema command and
@@ -665,6 +716,19 @@ def test_cli_write_schema_writes_file(tmp_path, mocker, markdown_flag, suffix):
     expected = out.with_suffix(suffix)
     assert expected.exists()
     assert expected.read_text()
+
+
+def test_cli_write_schema_path_that_is_a_literal(tmp_path, monkeypatch):
+    # Fire turns an argument that looks like a Python literal into one, so a
+    # path named 2024 arrives as an int; the file is still 2024.json.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("sys.argv", ["aavso-starlist-schema", "write-schema", "2024"])
+
+    cli()
+
+    assert list(tmp_path.iterdir()) == [tmp_path / "2024.json"]
+    written = json.loads((tmp_path / "2024.json").read_text())
+    assert written == json.loads(generate_star_list_set_schema())
 
 
 def test_cli_write_schema_refuses_then_forces(tmp_path, mocker, capsys):
