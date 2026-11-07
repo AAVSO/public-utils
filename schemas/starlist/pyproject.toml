@@ -22,7 +22,7 @@ dependencies = [
   "astropy",
   "fire",
   "numpy",
-  "pydantic>=2",
+  "pydantic>=2.11",
 ]
 
 [project.optional-dependencies]

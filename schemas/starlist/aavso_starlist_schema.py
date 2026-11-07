@@ -535,6 +535,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     photometry_software: Annotated[
         list[Annotated[str, Field(min_length=1, max_length=63)]],
         Field(
+            fail_fast=True,
             min_length=1,
             title="Photometry Software",
             description=(
@@ -562,6 +563,7 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     staritems: Annotated[
         list[StarItem],
         Field(
+            fail_fast=True,
             max_length=100_000,
             title="Star Items",
             description="List of stars detected in the image",
@@ -1704,6 +1706,7 @@ class StarListSet(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin
     star_lists: Annotated[
         list[StarList],
         Field(
+            fail_fast=True,
             title="Star List Set",
             description="List of star lists",
             json_schema_extra=dict(unit="none"),
