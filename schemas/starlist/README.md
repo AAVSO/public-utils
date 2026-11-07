@@ -18,7 +18,7 @@ pip install "aavso-starlist-schema @ git+https://github.com/AAVSO/public-utils.g
 
 ### Usage
 
-#### From Python
+#### From Python: Generate the schema
 
 ```python
 from aavso_starlist_schema import generate_star_list_set_schema, generate_starlist_schema
@@ -35,7 +35,7 @@ with open("starlist_schema.json", "w") as f:
     f.write(generate_star_list_set_schema())
 ```
 
-To generate a markdown table describing the schema:
+#### From python: Generate a markdown table describing the schema
 
 ```python
 from aavso_starlist_schema import StarList, StarListSet
@@ -44,7 +44,7 @@ print(StarListSet.markdown_table())
 print(StarList.markdown_table())
 ```
 
-To check that a starlist file is valid:
+#### From python: Check that a starlist file is valid
 
 ```python
 from aavso_starlist_schema import validate_file
