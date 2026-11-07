@@ -819,13 +819,14 @@ class _Migration(NamedTuple):
 
     - From ``StarListSet.model_validate_json``, ``model_validate`` or the
       constructor, plain JSON data: dicts, lists, strings, numbers, booleans
-      and ``None``. The input is first validated against the frozen
-      ``model`` as given, apart from one-shot iterators and list-like
-      containers (deques, arrays and the like), which are read into lists;
-      then it is converted by `_to_plain`: list-like containers become
-      lists, other mappings dicts, instances of the frozen generation's own
-      ``StarList`` or ``StarItem`` dicts of their fields, enum members their
-      values. Keys the frozen model ignores are kept.
+      and ``None``. Keys the 0.3 models do not define are dropped first,
+      unread (see `_materialize_defined`); the input is then validated
+      against the frozen ``model`` as given, apart from one-shot iterators
+      and list-like containers (deques, arrays and the like), which are read
+      into lists; then it is converted by `_to_plain`: list-like containers
+      become lists, other mappings dicts, instances of the frozen
+      generation's own ``StarList`` or ``StarItem`` dicts of their fields,
+      enum members their values.
     - From `upgrade` called directly, anything at all: nothing has been
       validated or converted.
 
@@ -1364,8 +1365,7 @@ def _to_plain(value):
         other list-like container (see `_is_sequence_like`) a list, a model
         instance a dict of its fields, an enum member its value and a
         datetime an ISO 8601 string. A value of a type pydantic cannot
-        serialize, possible only under a key the models ignore, is passed on
-        as given.
+        serialize is passed on as given.
     """
     if isinstance(value, Mapping):
         return {key: _to_plain(item) for key, item in value.items()}
@@ -1423,6 +1423,56 @@ def _materialize(value):
     if _is_sequence_like(value):
         return [_materialize(item) for item in value]
     return value
+
+
+# The field of each frozen 0.3 model that holds the records of the level below.
+_0_3_NESTED = {
+    _aavso_starlist_v0_3.StarListSet: ("star_lists", _aavso_starlist_v0_3.StarList),
+    _aavso_starlist_v0_3.StarList: ("staritems", _aavso_starlist_v0_3.StarItem),
+    _aavso_starlist_v0_3.StarItem: None,
+}
+
+
+def _materialize_defined(record, model=_aavso_starlist_v0_3.StarListSet):
+    """
+    Keep the keys the 0.3 models define, reading one-shot iterators under them.
+
+    Parameters
+    ----------
+    record : object
+        Raw starlist-set data from a file of a generation before 0.4, or a
+        star list or star item inside it.
+    model : type, optional
+        The frozen 0.3 model of ``record``: ``StarListSet`` (the default),
+        ``StarList`` or ``StarItem`` of `_aavso_starlist_v0_3`.
+
+    Returns
+    -------
+    object
+        If ``record`` is a mapping, a dict of the keys of it that ``model``
+        defines, in their original order, each value passed through
+        `_materialize`, and the records of the level below (``star_lists``,
+        ``staritems``) through this function. A value under any other key is
+        dropped without being read: the frozen models of every generation
+        before 0.4 ignore it, `_migrate_0_3_to_0_4` drops it, and reading it
+        could fail or never finish (a closed file, an endless generator). The
+        older generations define no key the 0.3 models do not, so nothing
+        their validation reads is removed. Anything that is not a mapping is
+        passed through `_materialize` only, so a model instance is kept as
+        given and a wrong value is left for validation to reject.
+    """
+    if not isinstance(record, Mapping):
+        return _materialize(record)
+    nested = _0_3_NESTED[model]
+    kept = {}
+    for key, value in record.items():
+        if key not in model.model_fields:
+            continue
+        if nested is not None and key == nested[0] and _is_sequence_like(value):
+            kept[key] = [_materialize_defined(item, nested[1]) for item in value]
+        else:
+            kept[key] = _materialize(value)
+    return kept
 
 
 def upgrade(data):
@@ -1547,13 +1597,14 @@ class StarListSet(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin
         constructor, so every way of creating a `StarListSet` reads old files.
         Data from an older generation goes through three steps:
 
-        1. Read one-shot iterators and list-like containers (deques, arrays
-           and the like) into lists with `_materialize`, once, so a generator
-           is read only once, and validate the data, otherwise as given,
+        1. Drop the keys the 0.3 models do not define, at every level,
+           without reading their values, and read one-shot iterators and
+           list-like containers (deques, arrays and the like) under the rest
+           into lists, once, with `_materialize_defined`, so a generator is
+           read only once; then validate the data, otherwise as given,
            against the frozen model of its own generation.
         2. Convert the data to plain JSON data with `_to_plain` and upgrade
-           it, keys the frozen model ignores included, to the current
-           version with `upgrade`.
+           it to the current version with `upgrade`.
         3. Validate the result against this model.
 
         Data already in the current generation only gets step 3, stamped with
@@ -1602,12 +1653,14 @@ class StarListSet(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin
             # the model always states the version it conforms to.
             return handler({**data, "schema_version": SCHEMA_VERSION})
 
-        # Read one-shot iterators once, before both steps: a generator read by
+        # Drop keys the 0.3 models do not define unread (every older
+        # generation ends in the 0.3 migration, which drops them anyway) and
+        # read one-shot iterators once, before both steps: a generator read by
         # the frozen model would reach the migrations empty. Validate the data
         # otherwise as given, so a datetime in a string field is still refused.
-        # Upgrade the plain input, not the validated model, so keys the frozen
-        # model ignores still reach the migrations.
-        data = _materialize(data)
+        # Upgrade the plain input, not the validated model, so the upgraded
+        # data holds what the file holds, not the model's defaults.
+        data = _materialize_defined(data)
         _MIGRATIONS[generation].model.model_validate(data)
         upgraded = upgrade(_to_plain(data))
         try:

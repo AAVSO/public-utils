@@ -1,6 +1,7 @@
 import copy
 import datetime
 import decimal
+import io
 import json
 import re
 import warnings
@@ -701,9 +702,12 @@ def test_migration_reached_through_the_model_sees_only_plain_data(shape, mocker)
     assert seen[0]["star_lists"] == _legacy_data_json()["star_lists"]
 
 
-def test_key_the_frozen_model_ignores_reaches_the_migration(mocker):
+def test_key_the_frozen_model_ignores_but_0_3_defines_reaches_the_migration(mocker):
     # The raw input is converted, not a dump of the validated frozen model, so
-    # a key that model ignores is still there for a migration that uses it.
+    # a key the legacy model ignores but the 0.3 models define (and so a
+    # migration may use) is still there, as the file holds it. A key no model
+    # up to 0.3 defines is dropped unread before validation instead; see
+    # test_values_under_undefined_keys_of_an_older_file_are_not_read.
     seen = []
 
     def _record_argument(data):
@@ -726,16 +730,17 @@ def test_key_the_frozen_model_ignores_reaches_the_migration(mocker):
     legacy = _MIGRATIONS["legacy"]
     mocker.patch.dict(_MIGRATIONS, {"legacy": legacy._replace(func=_record_argument)})
     data = _legacy_python_data("instances")
-    data["unknown_key"] = ("kept", MappingProxyType({"nested": 1}))
+    star_list = data["star_lists"][0].model_dump()
+    star_list["staritems"][0] = MappingProxyType({**star_list["staritems"][0], "fwhm": 2.5})
     data["star_lists"][0] = MappingProxyType(
-        {**data["star_lists"][0].model_dump(), "unknown_in_star_list": "kept"}
+        {**star_list, "photometry_software": ("kept",)}
     )
 
     with pytest.warns(SchemaMigrationWarning):
         StarListSet.model_validate(data)
 
-    assert seen[0]["unknown_key"] == ["kept", {"nested": 1}]
-    assert seen[0]["star_lists"][0]["unknown_in_star_list"] == "kept"
+    assert seen[0]["star_lists"][0]["photometry_software"] == ["kept"]
+    assert seen[0]["star_lists"][0]["staritems"][0]["fwhm"] == 2.5
 
 
 def test_upgrade_called_directly_passes_values_through_unconverted(mocker):
@@ -1432,6 +1437,51 @@ def test_older_file_with_a_datetime_obs_time_is_rejected(generation):
     error = excinfo.value.errors()[0]
     assert error["type"] == "string_type"
     assert error["loc"] == ("star_lists", 0, "obs_time")
+
+
+def _unreadable():
+    """
+    A generator that fails if anything reads it.
+    """
+    raise AssertionError("a value under a key the 0.3 models do not define was read")
+    yield  # makes this a generator; never reached
+
+
+@pytest.mark.parametrize("generation", OLDER_GENERATIONS)
+def test_values_under_undefined_keys_of_an_older_file_are_not_read(generation):
+    # A key the 0.3 models do not define is dropped at every level before
+    # anything reads its value: the frozen models ignored it and the 0.3
+    # migration drops it, so reading it could only fail (a closed file) or
+    # never finish (an endless generator). Each value here fails if read.
+    data, _ = _before_after_pair(generation)
+    closed = io.StringIO("notes")
+    closed.close()
+    data["pipeline"] = _unreadable()
+    data["star_lists"][0]["instrument_notes"] = closed
+    data["star_lists"][0]["staritems"][0]["flag"] = _unreadable()
+
+    with pytest.warns(SchemaMigrationWarning):
+        result = StarListSet.model_validate(data).model_dump(mode="json")
+
+    assert "pipeline" not in result
+    assert "instrument_notes" not in result["star_lists"][0]
+    assert "flag" not in result["star_lists"][0]["staritems"][0]
+
+
+def test_every_older_generation_is_upgraded_through_the_0_3_step():
+    # _materialize_defined drops the keys the 0.3 models do not define from
+    # a file of any older generation, unread, because every chain ends in
+    # the 0.3 migration, which drops them anyway. The frozen models of a
+    # generation after 0.3 forbid unknown keys, so such a file must not be
+    # pruned before its own validation: when one is added, decide what
+    # _read_older_versions drops for it.
+    current = _generation(SCHEMA_VERSION)
+    for generation in _MIGRATIONS:
+        visited = []
+        while generation != current:
+            visited.append(generation)
+            generation = _generation(_MIGRATIONS[generation].target)
+        assert "0.3" in visited, visited
 
 
 @pytest.mark.parametrize("generation", OLDER_GENERATIONS)
