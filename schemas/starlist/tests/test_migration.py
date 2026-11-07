@@ -2324,7 +2324,7 @@ def test_the_warning_lists_at_most_twenty_dropped_keys():
     )
 
 
-def test_migration_warning_is_attributed_to_the_caller():
+def test_migration_warning_is_attributed_to_the_module_or_the_caller():
     # Through StarListSet the warning is attributed to this package's module,
     # so a filter on module="aavso_starlist_schema" matches it; from
     # upgrade() it is attributed to the code that called upgrade().

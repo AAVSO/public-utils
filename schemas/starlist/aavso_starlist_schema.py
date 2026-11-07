@@ -821,21 +821,10 @@ class _Migration(NamedTuple):
     The argument is always a ``dict``, but what is inside depends on how
     `upgrade` was reached:
 
-    - From ``StarListSet.model_validate_json``, ``model_validate`` or the
-      constructor, plain JSON data: dicts, lists, strings, numbers, booleans
-      and ``None``. Instances of the frozen models of the file's own
-      generation, the whole set included, are replaced by dicts of their
-      fields, keys the frozen ``model`` of that generation does not define
-      are dropped, unread, and one-shot iterators and list-like containers
-      (deques, arrays and the like) under list fields are read into lists,
-      one level only, an iterator without a length up to one entry more
-      than the current model allows (see `_prune_and_materialize`); the
-      input is then validated against that frozen ``model``, every other
-      value as given, so every value the first migration sees was
-      validated by the schema of the file's own generation, and each later
-      one sees what the migration before it produced. Then it is converted
-      by `_to_plain`: lists are copied, other mappings become dicts, enum
-      members their values.
+    - From `StarListSet`, plain JSON data (dicts, lists, strings, numbers,
+      booleans and ``None``) that has been validated against the frozen
+      model of the file's own generation; see
+      ``StarListSet._read_older_versions`` for how the input is prepared.
     - From `upgrade` called directly, anything at all: nothing has been
       validated or converted.
 
@@ -1511,8 +1500,7 @@ def _is_sequence_like(value):
     -------
     bool
         True for an iterable that is not a string, bytes, mapping, model
-        instance or zero-dimensional array: a list, tuple, deque, set,
-        generator or array of one or more dimensions, for example.
+        instance or zero-dimensional array.
     """
     if isinstance(value, (str, bytes, bytearray, Mapping, BaseModel)):
         return False
@@ -1533,12 +1521,9 @@ def _list_item_type(annotation):
     Returns
     -------
     type or typing special form or None
-        The item type of ``annotation`` if it is a list, with ``Annotated``
-        wrappers dropped from both the list and its item, so
-        ``list[StarItem]``, ``list[StarItem] | None`` and
-        ``Optional[list[StarItem]]`` all give ``StarItem``; ``object`` for a
-        bare ``list`` or ``typing.List``. None if ``annotation`` is not a
-        list, or is a union of more than one list type.
+        The item type if ``annotation`` is a list, possibly wrapped in
+        ``Annotated`` or in a union with ``None``; ``object`` for a bare
+        ``list``. None if it is not a list, or is a union of several lists.
     """
     origin = get_origin(annotation)
     if origin is Annotated:
@@ -1572,12 +1557,11 @@ def _given_fields(instance):
     Returns
     -------
     dict
-        ``instance.model_dump(warnings=False, exclude_unset=True)``. The
-        fields left at their defaults are excluded, so the instance upgrades
-        like the same data given as a dict, without defaults it never held.
-        Serializer warnings are off because the frozen models do not
-        revalidate their own instances: one changed after it was built may
-        hold a wrong value, which validation then reports where it is.
+        The fields set on ``instance``, defaults excluded, so it upgrades
+        like the same data given as a dict. Serializer warnings are off: the
+        frozen models do not revalidate their own instances, so one changed
+        after it was built may hold a wrong value, which validation then
+        reports where it is.
     """
     return instance.model_dump(warnings=False, exclude_unset=True)
 
@@ -1594,9 +1578,8 @@ def _nested_model(field):
     Returns
     -------
     type or None
-        The item type of ``field`` if it is a list of pydantic models, such
-        as `StarItem` for ``staritems``; None otherwise, or if ``field`` is
-        None.
+        The item type of ``field`` if it is a list of pydantic models; None
+        otherwise.
     """
     item_type = None if field is None else _list_item_type(field.annotation)
     if isinstance(item_type, type) and issubclass(item_type, BaseModel):
@@ -1616,9 +1599,8 @@ def _max_length(field):
     Returns
     -------
     int or None
-        The ``max_length`` set on ``field`` (pydantic keeps it as an
-        ``annotated_types.MaxLen`` in ``field.metadata``), or None if it has
-        none or ``field`` is None.
+        The ``max_length`` of ``field``, or None if it has none or ``field``
+        is None.
     """
     if field is None:
         return None
@@ -1640,15 +1622,13 @@ def _dotted(path):
     ----------
     path : tuple of str or int
         Field names and list indexes leading from the starlist set to a
-        record, such as ``("star_lists", 0, "staritems", 2)``. Every str in
-        it is a field name and every int a list index.
+        record, such as ``("star_lists", 0, "staritems", 2)``.
 
     Returns
     -------
     str
         The names joined with dots, each index written as ``[]``, such as
-        ``star_lists[].staritems[]``, so the same place in every star list
-        has one name; ``""`` for the starlist set itself.
+        ``star_lists[].staritems[]``; ``""`` for the starlist set itself.
     """
     name = ""
     for part in path:
@@ -1677,9 +1657,7 @@ def _list_error(error_type, loc, value, ctx=None):
     Returns
     -------
     pydantic.ValidationError
-        One error of ``error_type`` at ``loc``. Its title is
-        ``StarListSet``: pydantic replaces it with the title of the model
-        being validated, which is always `StarListSet` here.
+        One error of ``error_type`` at ``loc``, titled ``StarListSet``.
     """
     line = {"type": error_type, "loc": loc, "input": value}
     if ctx is not None:
@@ -1703,8 +1681,7 @@ def _key_name(path, key):
     str
         ``<record>.<key>`` for a str key, such as ``star_lists[].bias``, or
         the key alone at the top level; ``<record>[<repr of key>]`` for any
-        other key, such as ``star_lists[][1]``, so an int key ``1`` and a
-        str key ``"1"`` have different names.
+        other key.
     """
     prefix = _dotted(path)
     if not isinstance(key, str):
@@ -1723,11 +1700,9 @@ def _read_list(value, limit, path):
     limit : int or None
         The largest number of entries the field may hold, or None for no
         limit. A value without a length, such as a generator, is read only
-        up to ``limit + 1`` entries; a value with a length is in memory
-        already and is read in full.
+        up to ``limit + 1`` entries; a value with a length is read in full.
     path : tuple of str or int
-        Where the field is in the starlist set, such as
-        ``("star_lists", 0, "staritems")``, for the error.
+        Where the field is in the starlist set, for the error.
 
     Returns
     -------
@@ -1738,12 +1713,11 @@ def _read_list(value, limit, path):
     ------
     pydantic.ValidationError
         As pydantic reports the same value in a file of the current
-        generation: of type ``list_type`` at ``path`` if ``value`` cannot be
-        iterated at all (``iter`` fails, as for a closed file); of type
-        ``iteration_error`` at the entry it could not read, ``(*path,
-        index)``, if reading an entry raises an exception (a generator that
-        fails), which is its ``__cause__``; of type ``too_long`` at ``path``
-        if a value without a length holds more than ``limit`` entries.
+        generation: ``list_type`` at ``path`` if ``value`` cannot be
+        iterated at all; ``iteration_error`` at ``(*path, index)`` if
+        reading an entry raises, which is its ``__cause__``; ``too_long``
+        at ``path`` if a value without a length holds more than ``limit``
+        entries.
     """
     try:
         iterator = iter(value)
@@ -1784,76 +1758,42 @@ def _prune_and_materialize(record, model, current=None, path=(), dropped=None):
         Raw starlist-set data from a file of a generation before the current
         one, or a star list or star item inside it.
     model : type
-        The frozen model of ``record`` in the file's own generation: the
-        ``StarListSet`` of `_MIGRATIONS` for the file's generation, or a
-        model nested in it (its ``StarList`` or ``StarItem``).
+        The frozen model of ``record`` in the file's own generation.
     current : type, optional
-        The current model of ``record`` (`StarListSet`, `StarList` or
-        `StarItem`), whose list fields give the limit on the entries read.
-        Default None: no limit.
+        The current model of ``record``, whose list fields give the limit on
+        the entries read. Default None: no limit.
     path : tuple of str or int, optional
-        Where ``record`` is in the starlist set, such as
-        ``("star_lists", 0)``, for errors and dropped key names. Default
-        ``()``, the starlist set itself.
+        Where ``record`` is in the starlist set, for errors and dropped key
+        names. Default ``()``, the starlist set itself.
     dropped : set of str, optional
-        If given, the name of each key dropped, in the form `_dotted` gives
-        (such as ``star_lists[].bias``), is added to it; never a value.
-        Default None.
+        If given, the name of each key dropped (see `_key_name`) is added to
+        it; never a value. Default None.
 
     Returns
     -------
     object
-        If ``record`` is an instance of ``model`` (a record of the file's own
-        generation built in Python), the fields it was given as a dict (see
-        `_given_fields`), pruned like any mapping below, so it is validated:
-        the frozen models do not revalidate their own instances, and one
-        changed after it was built could hold anything. If ``record`` is
-        anything else that is not a mapping, ``record`` as given: an
-        instance of another model or a wrong value is left for validation
-        to reject.
-        If it is a mapping, a dict of its keys in their original order,
-        where:
+        An instance of ``model`` is first read as the fields it was given
+        (see `_given_fields`); any other value that is not a mapping is
+        returned as given, for validation to reject. A mapping becomes a
+        dict of its keys in their original order, where a key ``model`` does
+        not define is dropped without its value being read (unless ``model``
+        forbids extra keys, when it is kept for validation to reject); a
+        list-like value under a list of models is read into a list with each
+        item passed through this function; a list-like value under any other
+        list field is read into a list, its items as given; and every other
+        value is kept as given.
 
-        - a key ``model`` does not define is dropped without its value being
-          read, and its name added to ``dropped``, unless ``model`` forbids
-          extra keys, when it is kept as given so the frozen validation
-          rejects it. A model that ignores the key ignores its value, and
-          nothing downstream may use a value no schema validated; reading it
-          could also fail or never finish (a closed file, an endless
-          generator);
-        - under a field that is a list of models (``star_lists``,
-          ``staritems``), a list-like value (see `_is_sequence_like`) is read
-          into a list, each item passed through this function with the
-          nested model;
-        - under any other list field (``photometry_software``), a list-like
-          value is read into a list, one level only: its items are kept as
-          given, so validation reports a wrong item at its index, and an
-          item is never iterated (a closed file, an endless generator, the
-          list itself);
-        - every other value, including one under a scalar field, is kept as
-          given, so validation reports a wrong value where it is.
-
-        A one-shot iterator under a list field is so read once, before the
-        frozen validation, and the migrations get the same items. A value
-        without a length (a generator, an iterator) under a list field is
-        read up to one entry more than the current model allows (100001 for
-        ``staritems``, which allows 100000) and then refused as ``too_long``,
-        as a current file is, so an endless iterator cannot hang the read;
-        under a field with no limit (``star_lists``,
-        ``photometry_software``) it is read in full. A value with a length
-        (a list, a deque, an array) is read in full. `validate_as_written`
-        does none of this: it hands its input to the frozen model as given,
-        which reads an iterator under a list field in full.
+        A dropped value is never read because nothing downstream may use a
+        value no schema validated, and reading it could fail or never finish.
+        A one-shot iterator under a list field is read once, here, so the
+        frozen validation and the migrations see the same items; one without
+        a length is read at most one entry past what ``current`` allows and
+        then refused (see `_read_list`).
 
     Raises
     ------
     pydantic.ValidationError
-        If the value under a list field cannot be read, as pydantic reports
-        it for a file of the current generation (see `_read_list`): of type
-        ``iteration_error`` located at the entry it could not read, or
-        ``list_type`` at the field if the value cannot be iterated at all;
-        or of type ``too_long`` at the field if a value without a length
-        holds more entries than the current model allows.
+        If a value under a list field cannot be read; see `_read_list`.
     """
     if isinstance(record, model):
         record = _given_fields(record)
@@ -2080,17 +2020,12 @@ class StarListSet(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin
         constructor, so every way of creating a `StarListSet` reads old files.
         Data from an older generation goes through three steps:
 
-        1. With `_prune_and_materialize`, read an instance of a frozen
-           model of the data's own generation as a dict of its fields, drop
-           the keys that generation's frozen model does not define, at every
-           level, without reading their values, and read one-shot iterators
-           and list-like containers (deques, arrays and the like) under list
-           fields into lists, one level only and once, so a generator is
-           read only once, and one without a length only up to one entry
-           more than the current model allows; then validate the data, otherwise as
-           given, against that frozen model. Every value the first migration
-           sees has so been validated by the schema of the file's own
-           generation.
+        1. Prepare it with `_prune_and_materialize`: drop the keys the frozen
+           model of its own generation does not define, unread, and read
+           list-like values under list fields into lists, once and bounded;
+           then validate it, otherwise as given, against that frozen model,
+           so every value the first migration sees has been validated by the
+           schema of the file's own generation.
         2. Convert the data to plain JSON data with `_to_plain` and upgrade
            it to the current version with `_upgrade`, which names the
            dropped keys in its warning.
@@ -2122,13 +2057,9 @@ class StarListSet(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin
         pydantic.ValidationError
             If the data is not valid for the schema version it states; if
             the value under one of its list fields cannot be read (see
-            `_read_list`: type ``iteration_error`` at the entry that could
-            not be read, ``list_type`` at the field if the value cannot be
-            iterated at all, or ``too_long`` at the field if a value without
-            a length holds more entries than the current model allows); or
-            if a migration refuses it because the current generation cannot
-            hold a value in it (a `ValueError` from the migration, which
-            pydantic wraps).
+            `_read_list`); or if a migration refuses it because the current
+            generation cannot hold a value in it (a `ValueError` from the
+            migration, which pydantic wraps).
         MigrationResultError
             If older data was valid as written but the upgraded data is not
             valid; this is a bug in a migration.

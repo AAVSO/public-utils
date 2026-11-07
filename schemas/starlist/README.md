@@ -74,7 +74,7 @@ A console script is installed with the package:
 # exits with status 1
 aavso-starlist-schema validate <file>
 
-# Validate against the schema version the file states, without upgrading it;
+# Validate against the schema of its own generation, without upgrading it;
 # a file from an older release of the current generation is read as the
 # current version; only the limits of its generation apply, so an older file
 # may pass that the current schema would refuse
