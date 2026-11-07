@@ -10,8 +10,10 @@ There is a [human-readable description of the schema](https://github.com/AAVSO/p
 
 ## Installation
 
+The package is not on PyPI; install it from this repository:
+
 ```bash
-pip install aavso-starlist-schema
+pip install "aavso-starlist-schema @ git+https://github.com/AAVSO/public-utils.git#subdirectory=schemas/starlist"
 ```
 
 ## Usage
