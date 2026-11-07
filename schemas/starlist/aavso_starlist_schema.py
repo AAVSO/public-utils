@@ -828,8 +828,8 @@ class _Migration(NamedTuple):
       frozen ``model``, every other value as given, so every value the
       first migration sees was validated by the schema of the file's own
       generation, and each later one sees what the migration before it
-      produced. Then it is converted by `_to_plain`: list-like containers
-      become lists, other mappings dicts, enum members their values.
+      produced. Then it is converted by `_to_plain`: lists are copied,
+      other mappings become dicts, enum members their values.
     - From `upgrade` called directly, anything at all: nothing has been
       validated or converted.
 
@@ -1364,15 +1364,24 @@ def _to_plain(value):
     -------
     object
         A new structure of dicts, lists, strings, numbers, booleans and
-        ``None``: every mapping becomes a dict, a tuple, deque, array or
-        other list-like container (see `_is_sequence_like`) a list, a model
-        instance a dict of its fields, an enum member its value and a
+        ``None``: every mapping becomes a dict, every list a new list, and
+        every other value is serialized by pydantic, so a model instance
+        becomes a dict of its fields, an enum member its value and a
         datetime an ISO 8601 string. A value of a type pydantic cannot
         serialize is passed on as given.
+
+    Notes
+    -----
+    Only a ``list`` is converted item by item, not every list-like value
+    (see `_is_sequence_like`): by the time this runs, `_prune_and_materialize`
+    has read the value under every list field into a list and the frozen
+    model has validated the rest, so an iterable left anywhere else is a
+    value pydantic read as a scalar, such as a float subclass that defines
+    ``__iter__``, and must stay one.
     """
     if isinstance(value, Mapping):
         return {key: _to_plain(item) for key, item in value.items()}
-    if _is_sequence_like(value):
+    if isinstance(value, list):
         return [_to_plain(item) for item in value]
     try:
         return to_jsonable_python(value)
@@ -1460,12 +1469,14 @@ def _prune_and_materialize(record, model):
     -------
     object
         If ``record`` is an instance of ``model`` (a record of the file's own
-        generation built in Python), its fields as a dict from
+        generation built in Python), the fields it was given as a dict from
         ``model_dump`` (without serializer warnings, which a wrong value
-        would raise), pruned like any mapping below, so it is validated: the
-        frozen models do not revalidate their own instances, and one changed
-        after it was built could hold anything. If ``record`` is
-        anything else that is not a mapping, ``record`` as given: an instance
+        would raise, and without the fields left at their defaults, so it
+        upgrades like the same data given as a dict), pruned like any
+        mapping below, so it is validated: the frozen models do not
+        revalidate their own instances, and one changed after it was built
+        could hold anything. If ``record`` is anything else that is not a
+        mapping, ``record`` as given: an instance
         of another model or a wrong value is left for validation to reject.
         If it is a mapping, a dict of its keys in their original order,
         where:
@@ -1489,10 +1500,14 @@ def _prune_and_materialize(record, model):
           given, so validation reports a wrong value where it is.
 
         A one-shot iterator under a list field is so read once, before the
-        frozen validation, and the migrations get the same items.
+        frozen validation, and the migrations get the same items. The
+        list-like value under a list field is itself read in full, as
+        ``validate_as_written`` with the frozen model would read it: an
+        endless iterator there never finishes, and an error its iteration
+        raises propagates as raised, not as a validation error.
     """
     if isinstance(record, model):
-        record = record.model_dump(warnings=False)
+        record = record.model_dump(warnings=False, exclude_unset=True)
     if not isinstance(record, Mapping):
         return record
     forbids_extra = model.model_config.get("extra") == "forbid"

@@ -1728,6 +1728,66 @@ def test_older_file_with_a_decimal_float_is_upgraded(generation):
     assert result.star_lists[0].exposure == 30.5
 
 
+class _IterableFloat(float):
+    """A float that is also iterable, as a scalar from some library might be."""
+
+    def __iter__(self):
+        """
+        Iterate over nothing.
+
+        Returns
+        -------
+        iterator
+            An empty iterator.
+        """
+        return iter(())
+
+
+def test_0_3_iterable_float_is_upgraded_as_a_float():
+    # A float subclass that defines __iter__ is read as a float by the frozen
+    # 0.3 model, so it must reach the migration as one: the upgrade gives
+    # the same result as the plain float. Before the fix the conversion to
+    # plain data turned it into [] and the result was a MigrationResultError.
+    data = {"schema_version": "0.3.2", "star_lists": [_star_list_0_3(exposure=30.5)]}
+    iterable = {
+        "schema_version": "0.3.2",
+        "star_lists": [_star_list_0_3(exposure=_IterableFloat(30.5))],
+    }
+    assert validate_as_written(iterable).star_lists[0].exposure == 30.5
+
+    with pytest.warns(SchemaMigrationWarning):
+        expected = StarListSet.model_validate(data)
+    with pytest.warns(SchemaMigrationWarning):
+        result = StarListSet.model_validate(iterable)
+
+    assert result.star_lists[0].exposure == 30.5
+    assert result == expected
+
+
+def test_frozen_instance_upgrades_with_the_fields_a_dict_would_set():
+    # A frozen 0.3 StarList built without bias, absolute_focus and stack
+    # upgrades with the same fields set as the same data given as a dict:
+    # the defaults it filled in are not read as values the file holds.
+    # Before the fix the instance's upgraded star list had all three set.
+    star_list = _star_list_0_3()
+    for name in ("bias", "absolute_focus", "stack"):
+        del star_list[name]
+    instance = _aavso_starlist_v0_3.StarList.model_validate(star_list)
+
+    with pytest.warns(SchemaMigrationWarning):
+        from_dict = StarListSet.model_validate(
+            {"schema_version": "0.3.2", "star_lists": [star_list]}
+        )
+    with pytest.warns(SchemaMigrationWarning):
+        from_instance = StarListSet.model_validate(
+            {"schema_version": "0.3.2", "star_lists": [instance]}
+        )
+
+    fields_set = from_instance.star_lists[0].model_fields_set
+    assert fields_set == from_dict.star_lists[0].model_fields_set
+    assert not fields_set & {"bias", "absolute_focus", "stack"}
+
+
 # Containers a pydantic list field reads as a list but JSON text never gives.
 LIST_LIKE_CONTAINERS = [
     pytest.param(deque, id="deque"),

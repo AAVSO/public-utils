@@ -206,8 +206,9 @@ file from an older generation goes through three steps:
    level is read, and its items are validated as given. A model instance of
    the file's own generation is read as its fields and validated like a
    dict. Everything else is validated as given.
-2. It is converted to plain JSON data (tuples become lists, other mappings
-   dicts, model instances dicts of their fields, enum members their values)
+2. It is converted to plain JSON data (lists are copied, other mappings
+   become dicts, model instances dicts of their fields, enum members their
+   values; any other value is kept a scalar, even one that is iterable)
    and upgraded to the current schema version with `upgrade()`, as a plain
    dict, one generation at a time. Nothing is validated between migrations.
 3. The result is validated against the current model.
