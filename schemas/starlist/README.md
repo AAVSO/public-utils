@@ -129,8 +129,8 @@ legacy file and upgraded with a warning, see below). The generated
 A *generation* is a set of versions that need no migration between them: a
 reader reads any released version of its own generation up to its own version,
 and refuses newer ones. The generations are `0.2` for 0.2.z, `0.3` for 0.3.z,
-`0.4` for 0.4.z (the current one), and so on, then `1` for 1.y.z, and
-`legacy` for everything before 0.2.0 (files with no `schema_version`,
+`0.4` for 0.4.z, `1` for 1.y.z (the current one), then `2` for 2.y.z and so
+on, and `legacy` for everything before 0.2.0 (files with no `schema_version`,
 package-version strings such as `0.0.1.dev451+gde1568f`, or a version below
 0.2.0 such as `0.0.1`).
 Crossing a generation boundary requires a migration.
@@ -141,9 +141,25 @@ require `stack` to be 1 or more or `null`, and cap the length of each string
 field and the number of star items (see `schema_definition.json` for the
 limits).
 
+From 1.0.0 the models also require `observer` to be an AAVSO observer code of
+2 to 7 uppercase letters; refuse a boolean, a string or bytes (such as `true`
+or `"1000"`) in every numeric field, as JSON Schema's `number` and `integer`
+types do; require `obs_time` to be a date and time of the ISO 8601 form
+`YYYY-MM-DDTHH:MM:SS`, with an optional fraction of up to 6 digits and an
+optional `Z` or `±HH:MM` offset, without which the time is UTC (a space may
+replace the `T`; a lowercase `t` or `z`, a date alone, the basic or
+week-date forms and an impossible date or time are refused), checked by a
+`pattern` the JSON schema states too (the pattern checks the form only; the
+model alone refuses an impossible date such as February 30); cap
+`tel_manufac` and `tel_model` at 31 characters; put an upper bound on
+`width`, `height` and `stack` (32767), `adc_depth` (64) and
+`largest_usable_adu_value` (2147483647); and allow at most 1000 star lists
+in a file and 100 `photometry_software` entries in a star list.
+
 Every generation that has been left behind keeps a *frozen* copy of its models
 in its own module (`_aavso_starlist_legacy.py` for the legacy generation,
-`_aavso_starlist_v0_2.py` for 0.2, `_aavso_starlist_v0_3.py` for 0.3), so
+`_aavso_starlist_v0_2.py` for 0.2, `_aavso_starlist_v0_3.py` for 0.3,
+`_aavso_starlist_v0_4.py` for 0.4), so
 that an old file can still be validated against the schema it was written for.
 The live models in `aavso_starlist_schema.py` are always the current generation.
 
@@ -163,7 +179,10 @@ generation. While the schema is `0.y.z`, every minor bump is a new generation,
 but only a breaking change takes one: a new optional field is a patch bump
 (0.2.0 → 0.2.1) and stays in the same generation. This is the convention
 Cargo uses for `0.y.z` versions, chosen so that a minor bump while `0.y.z`,
-like a major bump from 1.0.0 on, always means a migration is needed.
+like a major bump from 1.0.0 on, always means a migration is needed. The
+schema is now at 1.y.z: a breaking change is a major bump (1.y.z → 2.0.0)
+and starts a new generation, while a new optional field is a minor bump
+(1.0.0 → 1.1.0) and stays in the same one.
 
 The steps are listed in the order they are done. The ones marked *new
 generation only* are for a breaking change (0.2 → 0.3, or 1 → 2 from 1.0.0
@@ -196,7 +215,10 @@ generates, archives and runs the tests.
    data has to change, and `_migrate_0_2_to_0_3` for one that fills in a new
    required field. `_migrate_0_3_to_0_4` is the template for one that drops
    what the new generation forbids and raises `ValueError`, naming the field,
-   for a file it cannot repair. A migration is never edited once released. It
+   for a file it cannot repair, and `_migrate_0_4_to_1` for one that also
+   repairs values that have an honest reading in the new generation
+   (uppercasing a code, turning a number given as a string into a number)
+   as well as refusing the rest. A migration is never edited once released. It
    takes a dict and returns the migrated dict; `upgrade()` stamps the target
    version on the result. It is given a deep copy, so it may modify its
    argument in place. Through `model_validate_json`, `model_validate` and the
@@ -210,7 +232,7 @@ generates, archives and runs the tests.
 6. *New generation only.* Add a `before.json`/`after.json` pair of sample
    files under
    `tests/data/migrations/<old generation>_to_<new generation>/`, e.g.
-   `legacy_to_0.2`, `0.2_to_0.3`, `0.9_to_1`. `before.json` must be valid for
+   `legacy_to_0.2`, `0.3_to_0.4`, `0.4_to_1`. `before.json` must be valid for
    the frozen model of the old generation and `after.json` for the new one.
 7. Run `uv run pytest`. It treats an unexpected `SchemaMigrationWarning` as an
    error, so a test that reads a file of an older generation must expect the
@@ -237,8 +259,10 @@ file from an older generation goes through three steps:
 1. It is validated against the frozen model of its own generation: is this
    file valid for the schema version it states? Keys that frozen model does
    not define are dropped first, at every level, without their values being
-   read: the frozen model ignores them, and nothing downstream may use a
-   value no schema validated, even under a key a later generation defines.
+   read, if that model ignores them (legacy, 0.2, 0.3); the 0.4 models
+   forbid them, so a 0.4 file with such a key fails step 1. Nothing
+   downstream may use a value no schema validated, even under a key a later
+   generation defines.
    One-shot iterators such as generators and list-like containers (deques,
    arrays and the like) under list fields are first read, once, into lists;
    under a list of plain values such as `photometry_software` only that one
@@ -278,10 +302,14 @@ The first two steps are also available on their own:
   inside to the migrations as given, without converting them to plain data.
 
 `validate_as_written` answers only whether a file is valid for the generation
-of the version it claims. It does not apply anything a later version added: a 0.3.x file may
-hold infinity or NaN, strings of any length, more than 100000 star items or a
-`stack` of 0, and `model_dump(mode="json")` of the result emits them as they
-are. To hold every file to the current schema, read it with
+of the version it claims. It does not apply anything a later version added:
+for instance a 0.3.x file may hold infinity or NaN, strings of any length,
+more than 100000 star items or a `stack` of 0, and a 0.4.x file an observer
+code that is not 2 to 7 uppercase letters, an `obs_time` not of the 1.0.0
+form, or a value over a 1.0.0 limit, which `model_dump(mode="json")` of the
+result emits as they are. A boolean or numeric string in a numeric field is
+also accepted, but comes back as the number the 0.4 model read it as. To
+hold every file to the current schema, read it with
 `StarListSet.model_validate` or `validate_file(path)`, which upgrade it.
 
 A file from an older version of the current generation needs no migration; it
@@ -312,10 +340,17 @@ define (the 0.3 reader ignored them) and turns a `stack` of 0 or less into
 `null`, but a float that is infinite or NaN, a string longer than 0.4.0
 allows, or a star list of more than 100000 star items has no 0.4 form:
 the migration raises `ValueError` naming the field, and `upgrade()` called
-directly raises that `ValueError` itself. The field is named in the error
-message, not in pydantic's `loc` (which is empty), and only the first such
-problem is reported. Either way it is not a `MigrationResultError`, since the
-package is not at fault.
+directly raises that `ValueError` itself. Likewise the 0.4 to 1 migration
+uppercases an observer code of 2 to 7 letters and turns a boolean, a string or
+bytes (or a numpy wrapper of one) in a numeric field into the number the 0.4
+reader read it as, but refuses an observer code that is not 2 to 7 letters, an
+`obs_time` not of the 1.0.0 form or not a real date and time (such as
+`2021-06-15`, `2021-06-15t03:45:00` or `20210615T034500`), a `tel_manufac` or
+`tel_model` longer than 31 characters, an integer over its 1.0.0 maximum, more
+than 1000 star lists or more than 100 `photometry_software` entries. The field
+is named in the error message, not in pydantic's `loc` (which is empty), and
+only the first such problem is reported. Either way it is not a
+`MigrationResultError`, since the package is not at fault.
 
 Three errors are specific to versioning. All derive from `SchemaVersionError`,
 which is deliberately not a `ValueError`, so pydantic does not wrap them in a
