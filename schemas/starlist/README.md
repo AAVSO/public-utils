@@ -53,9 +53,10 @@ from aavso_starlist_schema import validate_file
 # older (with a SchemaMigrationWarning); returns a StarListSet
 star_list_set = validate_file("starlists.json")
 
-# Validate the file against the schema of the version it states, without
-# upgrading it; returns the model of that version, no warning (a file from an
-# older release of the current generation is read as the current version)
+# Validate the file against the schema of its own generation, without
+# upgrading it; returns that generation's model, no warning (a file from an
+# older release of the current generation is read as the current version).
+# Only that generation's limits apply; see "Reading starlist files".
 as_written = validate_file("starlists.json", as_written=True)
 ```
 
@@ -75,7 +76,8 @@ aavso-starlist-schema validate <file>
 
 # Validate against the schema version the file states, without upgrading it;
 # a file from an older release of the current generation is read as the
-# current version
+# current version; only the limits of its generation apply, so an older file
+# may pass that the current schema would refuse
 aavso-starlist-schema validate <file> --as-written
 
 # Write the JSON schema to <path> with its suffix replaced by .json
@@ -276,6 +278,13 @@ The first two steps are also available on their own:
   generation, stamped with the current version. The result is always a copy; the
   input is not modified. It does not validate, and it passes the values
   inside to the migrations as given, without converting them to plain data.
+
+`validate_as_written` answers only whether a file is valid for the generation
+of the version it claims. It does not apply anything a later version added: a 0.3.x file may
+hold infinity or NaN, strings of any length, more than 100000 star items or a
+`stack` of 0, and `model_dump(mode="json")` of the result emits them as they
+are. To hold every file to the current schema, read it with
+`StarListSet.model_validate` or `validate_file(path)`, which upgrade it.
 
 A file from an older version of the current generation needs no migration; it
 is read without a warning, and the object states the current version.
