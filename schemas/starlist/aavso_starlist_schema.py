@@ -819,16 +819,17 @@ class _Migration(NamedTuple):
 
     - From ``StarListSet.model_validate_json``, ``model_validate`` or the
       constructor, plain JSON data: dicts, lists, strings, numbers, booleans
-      and ``None``. Keys the frozen ``model`` of the file's own generation
-      does not define are dropped first, unread, and one-shot iterators and
-      list-like containers (deques, arrays and the like) under list fields
-      are read into lists (see `_prune_and_materialize`); the input is then
-      validated against that frozen ``model``, every other value as given,
-      so every value that reaches a migration was validated by the schema
-      of the file's own generation. Then it is converted by `_to_plain`:
-      list-like containers become lists, other mappings dicts, instances of
-      the frozen generation's own ``StarList`` or ``StarItem`` dicts of
-      their fields, enum members their values.
+      and ``None``. Instances of the frozen models of the file's own
+      generation are replaced by dicts of their fields, keys the frozen
+      ``model`` of that generation does not define are dropped, unread, and
+      one-shot iterators and list-like containers (deques, arrays and the
+      like) under list fields are read into lists, one level only (see
+      `_prune_and_materialize`); the input is then validated against that
+      frozen ``model``, every other value as given, so every value the
+      first migration sees was validated by the schema of the file's own
+      generation, and each later one sees what the migration before it
+      produced. Then it is converted by `_to_plain`: list-like containers
+      become lists, other mappings dicts, enum members their values.
     - From `upgrade` called directly, anything at all: nothing has been
       validated or converted.
 
@@ -1402,31 +1403,6 @@ def _is_sequence_like(value):
     return isinstance(value, Iterable)
 
 
-def _materialize(value):
-    """
-    Read every one-shot iterator in a value into a list, changing nothing else.
-
-    Parameters
-    ----------
-    value : object
-        Raw starlist-set data, or any value inside it.
-
-    Returns
-    -------
-    object
-        A copy of ``value`` in which every mapping is a dict and every
-        list-like container (see `_is_sequence_like`) a list, walked all the
-        way down so a generator nested anywhere is found; every other value,
-        a datetime or model instance for example, is kept as given, so
-        validating the result checks the data as it was written.
-    """
-    if isinstance(value, Mapping):
-        return {key: _materialize(item) for key, item in value.items()}
-    if _is_sequence_like(value):
-        return [_materialize(item) for item in value]
-    return value
-
-
 def _list_item_type(annotation):
     """
     Find the item type of a list field's annotation.
@@ -1443,8 +1419,8 @@ def _list_item_type(annotation):
         wrappers dropped from both the list and its item, so
         ``list[StarItem]``, ``list[StarItem] | None`` and
         ``Optional[list[StarItem]]`` all give ``StarItem``; ``object`` for a
-        bare ``list``. None if ``annotation`` is not a list, or is a union of
-        more than one list type.
+        bare ``list`` or ``typing.List``. None if ``annotation`` is not a
+        list, or is a union of more than one list type.
     """
     origin = get_origin(annotation)
     if origin is Annotated:
@@ -1457,6 +1433,8 @@ def _list_item_type(annotation):
     if annotation is list:
         return object
     if origin is list:
+        if not get_args(annotation):
+            return object
         item = get_args(annotation)[0]
         while get_origin(item) is Annotated:
             item = get_args(item)[0]
@@ -1481,9 +1459,16 @@ def _prune_and_materialize(record, model):
     Returns
     -------
     object
-        If ``record`` is not a mapping, ``record`` as given: a model instance
-        or a wrong value is left for validation. If it is a mapping, a dict
-        of its keys in their original order, where:
+        If ``record`` is an instance of ``model`` (a record of the file's own
+        generation built in Python), its fields as a dict from
+        ``model_dump`` (without serializer warnings, which a wrong value
+        would raise), pruned like any mapping below, so it is validated: the
+        frozen models do not revalidate their own instances, and one changed
+        after it was built could hold anything. If ``record`` is
+        anything else that is not a mapping, ``record`` as given: an instance
+        of another model or a wrong value is left for validation to reject.
+        If it is a mapping, a dict of its keys in their original order,
+        where:
 
         - a key ``model`` does not define is dropped without its value being
           read, unless ``model`` forbids extra keys, when it is kept as given
@@ -1496,13 +1481,18 @@ def _prune_and_materialize(record, model):
           into a list, each item passed through this function with the
           nested model;
         - under any other list field (``photometry_software``), a list-like
-          value is read into a list by `_materialize`;
+          value is read into a list, one level only: its items are kept as
+          given, so validation reports a wrong item at its index, and an
+          item is never iterated (a closed file, an endless generator, the
+          list itself);
         - every other value, including one under a scalar field, is kept as
           given, so validation reports a wrong value where it is.
 
         A one-shot iterator under a list field is so read once, before the
         frozen validation, and the migrations get the same items.
     """
+    if isinstance(record, model):
+        record = record.model_dump(warnings=False)
     if not isinstance(record, Mapping):
         return record
     forbids_extra = model.model_config.get("extra") == "forbid"
@@ -1519,7 +1509,7 @@ def _prune_and_materialize(record, model):
         elif isinstance(item_type, type) and issubclass(item_type, BaseModel):
             kept[key] = [_prune_and_materialize(item, item_type) for item in value]
         else:
-            kept[key] = _materialize(value)
+            kept[key] = list(value)
     return kept
 
 
@@ -1645,14 +1635,15 @@ class StarListSet(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin
         constructor, so every way of creating a `StarListSet` reads old files.
         Data from an older generation goes through three steps:
 
-        1. Drop the keys the frozen model of the data's own generation does
-           not define, at every level, without reading their values, and
-           read one-shot iterators and list-like containers (deques, arrays
-           and the like) under list fields into lists, once, with
-           `_prune_and_materialize`, so a generator is read only once; then
-           validate the data, otherwise as given, against that frozen model.
-           Every value a migration sees has so been validated by the schema
-           of the file's own generation.
+        1. With `_prune_and_materialize`, read an instance of a frozen
+           model of the data's own generation as a dict of its fields, drop
+           the keys that generation's frozen model does not define, at every
+           level, without reading their values, and read one-shot iterators
+           and list-like containers (deques, arrays and the like) under list
+           fields into lists, one level only and once, so a generator is
+           read only once; then validate the data, otherwise as given,
+           against that frozen model. Every value the first migration sees
+           has so been validated by the schema of the file's own generation.
         2. Convert the data to plain JSON data with `_to_plain` and upgrade
            it to the current version with `upgrade`.
         3. Validate the result against this model.

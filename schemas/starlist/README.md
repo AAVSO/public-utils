@@ -163,10 +163,11 @@ generates, archives and runs the tests.
    argument in place. Through `model_validate_json`, `model_validate` and the
    constructor, the dict holds only plain JSON data (dicts, lists, strings,
    numbers, booleans and `None`): data built in Python is converted once the
-   frozen model has accepted it, and the migrations receive only the keys
+   frozen model has accepted it. The first migration receives only the keys
    that the frozen model of the file's own generation defines, so every value
-   they see was validated. `upgrade()` called directly validates and converts
-   nothing. The `_Migration` docstring has the details.
+   it sees was validated, and each later one what the migration before it
+   produced. `upgrade()` called directly validates and converts nothing. The
+   `_Migration` docstring has the details.
 6. *New generation only.* Add a `before.json`/`after.json` pair of sample
    files under
    `tests/data/migrations/<old generation>_to_<new generation>/`, e.g.
@@ -200,8 +201,11 @@ file from an older generation goes through three steps:
    read: the frozen model ignores them, and nothing downstream may use a
    value no schema validated, even under a key a later generation defines.
    One-shot iterators such as generators and list-like containers (deques,
-   arrays and the like) under list fields are first read, once, into lists.
-   Everything else is validated as given.
+   arrays and the like) under list fields are first read, once, into lists;
+   under a list of plain values such as `photometry_software` only that one
+   level is read, and its items are validated as given. A model instance of
+   the file's own generation is read as its fields and validated like a
+   dict. Everything else is validated as given.
 2. It is converted to plain JSON data (tuples become lists, other mappings
    dicts, model instances dicts of their fields, enum members their values)
    and upgraded to the current schema version with `upgrade()`, as a plain

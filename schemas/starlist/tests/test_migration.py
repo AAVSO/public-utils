@@ -9,6 +9,7 @@ from collections import deque
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
+from typing import List  # noqa: UP035 -- the bare typing.List is tested
 
 import numpy as np
 import pytest
@@ -1570,8 +1571,16 @@ def test_wrong_value_under_a_scalar_field_is_reported_where_it_is(generation, ma
 
 class _Inner(BaseModel):
     """
-    A throwaway nested model for the pruning test.
+    A throwaway nested model for the pruning test, ignoring extra keys.
     """
+    value: int
+
+
+class _InnerForbidding(BaseModel):
+    """
+    A throwaway nested model for the pruning test, forbidding extra keys.
+    """
+    model_config = ConfigDict(extra="forbid")
     value: int
 
 
@@ -1580,7 +1589,7 @@ class _OuterForbidding(BaseModel):
     A throwaway model that forbids extra keys, as a frozen 0.4 model would.
     """
     model_config = ConfigDict(extra="forbid")
-    items: list[_Inner]
+    items: list[_InnerForbidding]
 
 
 class _OuterIgnoring(BaseModel):
@@ -1592,19 +1601,118 @@ class _OuterIgnoring(BaseModel):
 
 def test_pruning_keeps_unknown_keys_for_a_model_that_forbids_them():
     # A frozen model that forbids extra keys (a future frozen 0.4 model) must
-    # see them to reject them, so the pruning keeps them, unread; a model
-    # that ignores them gets them dropped, unread. Each level follows its own
-    # model's config (the nested _Inner ignores extras either way), and a
-    # list of models given as a generator is read into a list.
-    data = {"items": (item for item in [{"value": 1, "extra": _unreadable()}]),
-            "extra": _unreadable()}
+    # see them to reject them, so the pruning keeps them, unread, at every
+    # level that forbids them, and validation then rejects them where they
+    # are; a model that ignores them gets them dropped, unread. Each level
+    # follows its own model's config, and a list of models given as a
+    # generator is read into a list.
+    unread_outer, unread_inner = _unreadable(), _unreadable()
+    data = {"items": (item for item in [{"value": 1, "xi": unread_inner}]),
+            "extra": unread_outer}
     kept = _prune_and_materialize(data, _OuterForbidding)
     assert list(kept) == ["items", "extra"]
-    assert kept["items"] == [{"value": 1}]
+    assert kept["extra"] is unread_outer
+    assert kept["items"] == [{"value": 1, "xi": unread_inner}]
+    assert kept["items"][0]["xi"] is unread_inner
+
+    with pytest.raises(ValidationError) as excinfo:
+        _OuterForbidding.model_validate(kept)
+    errors = {error["loc"]: error["type"] for error in excinfo.value.errors()}
+    assert errors == {("items", 0, "xi"): "extra_forbidden", ("extra",): "extra_forbidden"}
 
     data = {"items": (item for item in [{"value": 1, "extra": _unreadable()}]),
             "extra": _unreadable()}
     assert _prune_and_materialize(data, _OuterIgnoring) == {"items": [{"value": 1}]}
+
+
+class _BareList(BaseModel):
+    """
+    A throwaway model with a list field annotated as bare ``typing.List``.
+    """
+    names: List  # noqa: UP006 -- the bare typing.List is what is tested
+
+
+def test_pruning_reads_a_bare_typing_list_field():
+    # A field annotated as bare typing.List has no item type; the pruning
+    # reads a generator under it into a list like any other list field.
+    # Before the fix finding its item type raised IndexError.
+    kept = _prune_and_materialize({"names": (name for name in ["a", "b"])}, _BareList)
+    assert kept == {"names": ["a", "b"]}
+
+
+def _self_referential():
+    """
+    Build a list that holds itself as its second item.
+
+    Returns
+    -------
+    list
+        ``["a", <the list itself>]``.
+    """
+    looped = ["a"]
+    looped.append(looped)
+    return looped
+
+
+@pytest.mark.parametrize(
+    "make_item", [_unreadable, _closed_file, _self_referential],
+    ids=["generator", "closed", "self-referential"],
+)
+def test_wrong_item_of_a_list_of_strings_is_reported_at_its_index(make_item):
+    # A list of plain values such as photometry_software is read one level
+    # only, so an item that is not a string (a generator, a closed file, the
+    # list itself) is reported by pydantic as string_type at its index. Only
+    # the 0.3 frozen model defines photometry_software; legacy and 0.2 files
+    # have it dropped unread, which
+    # test_keys_a_later_generation_defines_are_not_read_from_an_older_file
+    # covers. Before the fix every item was walked all the way down: the
+    # closed file failed as a value_error with an empty loc, the
+    # self-referential list raised RecursionError, an endless generator hung.
+    data, _ = _before_after_pair("0.3")
+    item = make_item()
+    data["star_lists"][0]["photometry_software"] = ["ok", item]
+    if isinstance(item, list):
+        data["star_lists"][0]["photometry_software"] = item
+
+    with pytest.raises(ValidationError) as excinfo:
+        StarListSet.model_validate(data)
+
+    error = excinfo.value.errors()[0]
+    assert error["type"] == "string_type"
+    assert error["loc"] == ("star_lists", 0, "photometry_software", 1)
+
+
+def test_changed_frozen_instance_of_the_files_generation_is_validated():
+    # The frozen models do not revalidate their own instances, so a frozen
+    # 0.3 StarList changed after it was built is read as its fields and
+    # validated like a dict: an int as observer is reported as string_type
+    # at the field. Before the fix the instance was accepted as given and
+    # the bad value reached the current model, reported as a package bug
+    # (MigrationResultError).
+    data, _ = _before_after_pair("0.3")
+    star_list = _aavso_starlist_v0_3.StarList.model_validate(data["star_lists"][0])
+    star_list.observer = 12345
+    data["star_lists"][0] = star_list
+
+    with pytest.raises(ValidationError) as excinfo:
+        StarListSet.model_validate(data)
+
+    error = excinfo.value.errors()[0]
+    assert error["type"] == "string_type"
+    assert error["loc"] == ("star_lists", 0, "observer")
+
+
+def test_unchanged_frozen_instance_of_the_files_generation_is_upgraded():
+    # The other side of the revalidation fix: an unchanged frozen 0.3
+    # StarList in a 0.3 dict is read as its fields, its frozen enum member
+    # filter included, validated, and upgraded with the warning.
+    data, _ = _before_after_pair("0.3")
+    data["star_lists"][0] = _aavso_starlist_v0_3.StarList.model_validate(data["star_lists"][0])
+
+    with pytest.warns(SchemaMigrationWarning):
+        result = StarListSet.model_validate(data)
+
+    assert result.star_lists[0].filter is AAVSOFilters.TG
 
 
 @pytest.mark.parametrize("generation", OLDER_GENERATIONS)
