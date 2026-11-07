@@ -1,5 +1,9 @@
 # AAVSO Starlist Schema
 
+## Version note
+
+Version 1.0.0 of the schema will be released shortly. It will be a breaking change from the current schema ([details here](https://github.com/AAVSO/public-utils/pull/21)). We recommend waiting until 1.0 is released before using the schema in production code.
+
 ## Schema description for humans
 There is a [human-readable description of the schema](https://github.com/AAVSO/public-utils/blob/main/schemas/starlist/aavso_starlist_schema_data/schema_definition.md) available. In brief, a star file contains a single StarListSet, corresponding to one or more images, which contains one or more `StarList`s. Each StarList contains one or more `StarItem`s, which describe the stars in the image, along with metadata about the image and star list.
 
