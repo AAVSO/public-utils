@@ -1,14 +1,16 @@
+import decimal
 import json
 import re
 from typing import Annotated, Optional
 
 import numpy as np
 import pytest
-from _helpers import float_fields, flooded
+from _helpers import float_fields, flooded, int_fields
 from astropy.table import MaskedColumn, Table
 from pydantic import ValidationError
 
 from aavso_starlist_schema import (
+    _OBS_TIME_PATTERN,
     DATA_DIR,
     SCHEMA_VERSION,
     AAVSOFilters,
@@ -33,11 +35,51 @@ STAR_LIST_FLOAT_FIELDS = [
     "site_lat", "site_lon", "site_elev", "exposure", "egain", "bias", "fwhm", "absolute_focus",
 ]
 
+# The int fields of a star list (a star item has none), kept complete by
+# test_int_fields_are_all_listed.
+STAR_LIST_INT_FIELDS = ["width", "height", "stack", "adc_depth", "largest_usable_adu_value"]
+
+# Every numeric field, as (model, field name), for the tests that a number is
+# required.
+NUMERIC_FIELDS = (
+    [(StarItem, name) for name in STAR_ITEM_FLOAT_FIELDS]
+    + [(StarList, name) for name in STAR_LIST_FLOAT_FIELDS + STAR_LIST_INT_FIELDS]
+)
+
 # The maximum length, in characters, of each capped string field of a star list.
 STRING_LIMITS = {
-    "obs_time": 63, "observer": 7, "block_filter": 31, "tel_manufac": 63, "tel_model": 63,
+    "obs_time": 63, "observer": 7, "block_filter": 31, "tel_manufac": 31, "tel_model": 31,
     "tel_firmware": 31, "refframe": 15,
 }
+
+# The maximum of each int field of a star list that has one.
+INT_MAXIMA = {
+    "width": 32767, "height": 32767, "stack": 32767, "adc_depth": 64,
+    "largest_usable_adu_value": 2_147_483_647,
+}
+
+
+def _string_of_length(field_name, length):
+    """
+    Build a string of a given length that is otherwise valid for a field.
+
+    Parameters
+    ----------
+    field_name : str
+        A string field of `StarList`, a key of ``STRING_LIMITS``.
+    length : int
+        The number of characters wanted.
+
+    Returns
+    -------
+    str
+        For ``observer``, uppercase letters; for any other field, ``"x"``
+        repeated (for ``obs_time`` that is not a date and time, but a string
+        over the length limit is refused for its length first).
+    """
+    if field_name == "observer":
+        return "X" * length
+    return "x" * length
 
 
 def _one_star_set_data():
@@ -150,6 +192,98 @@ def test_float_fields_are_all_listed(klass, expected):
     # The lists of float fields the next tests check are every field whose
     # type is float, optional or not, so a new float field cannot escape them.
     assert list(float_fields(klass)) == expected
+
+
+def test_int_fields_are_all_listed():
+    # The int fields the tests below check are every field typed int, optional
+    # or not; a star item has none.
+    assert list(int_fields(StarList)) == STAR_LIST_INT_FIELDS
+    assert int_fields(StarItem) == ()
+
+
+@pytest.mark.parametrize(
+    "value, kind",
+    [
+        (True, "a boolean"),
+        (np.bool_(False), "a boolean"),
+        ("1000", "a string"),
+        (b"1", "bytes"),
+        (np.array("5"), "a string"),
+        (np.array(True), "a boolean"),
+        (np.array(b"5"), "bytes"),
+        (np.void(b"5"), "bytes"),
+    ],
+    ids=["bool", "numpy-bool", "str", "bytes", "str-array", "bool-array", "bytes-array",
+         "void"],
+)
+@pytest.mark.parametrize("klass, field_name", NUMERIC_FIELDS)
+def test_numeric_field_rejects_a_boolean_string_or_bytes(klass, field_name, value, kind):
+    # JSON Schema's number and integer types refuse true and "1000", which
+    # pydantic's lax mode would read as 1 and 1000; every numeric field refuses
+    # them too, with an error of its own type located at the field.
+    data = klass.from_examples().model_dump()
+    data[field_name] = value
+
+    with pytest.raises(ValidationError) as excinfo:
+        klass.model_validate(data)
+
+    error = excinfo.value.errors()[0]
+    assert error["type"] == "number_type"
+    assert error["msg"] == f"Input should be a number, not {kind}"
+    assert error["loc"] == (field_name,)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [3, np.float64(3.0), np.int64(3), decimal.Decimal("3")],
+    ids=["int", "numpy-float", "numpy-int", "decimal"],
+)
+@pytest.mark.parametrize(
+    "klass, field_name",
+    [(klass, name) for klass, name in NUMERIC_FIELDS if name not in STAR_LIST_INT_FIELDS],
+)
+def test_float_field_still_accepts_other_numbers(klass, field_name, value):
+    # Refusing booleans and strings leaves the rest of lax mode alone: an int,
+    # a numpy scalar or a Decimal in a float field is read as the float.
+    data = klass.from_examples().model_dump()
+    data[field_name] = value
+
+    result = getattr(klass.model_validate(data), field_name)
+
+    assert result == 3.0
+    assert type(result) is float
+
+
+@pytest.mark.parametrize(
+    "value",
+    [3.0, np.float64(3.0), np.int64(3), decimal.Decimal("3")],
+    ids=["float", "numpy-float", "numpy-int", "decimal"],
+)
+@pytest.mark.parametrize("field_name", STAR_LIST_INT_FIELDS)
+def test_int_field_still_accepts_other_whole_numbers(field_name, value):
+    # JSON Schema's integer type accepts 3.0, so an int field reads it, and a
+    # numpy scalar or a Decimal, as the int 3, as before 1.0.0.
+    data = StarList.from_examples().model_dump()
+    data[field_name] = value
+
+    result = getattr(StarList.model_validate(data), field_name)
+
+    assert result == 3
+    assert type(result) is int
+
+
+@pytest.mark.parametrize("klass, field_name", NUMERIC_FIELDS)
+def test_numeric_field_schema_is_a_plain_number(klass, field_name):
+    # The check for booleans and strings runs only in Python: the schema of a
+    # numeric field is still a plain number or integer, with no trace of it.
+    schema = klass.model_json_schema()["properties"][field_name]
+    types = [schema] if "type" in schema else schema["anyOf"]
+
+    assert {entry["type"] for entry in types} <= {"number", "integer", "null"}
+    assert set(schema) <= {
+        "type", "anyOf", "default", "title", "description", "examples", "unit",
+        "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
+    }
 
 
 @pytest.mark.parametrize(
@@ -284,12 +418,13 @@ def test_stack_accepts_one_or_none(value):
     assert StarList.model_validate(data).stack == value
 
 
-def test_stack_schema_has_minimum_one():
-    # The generated schema says stack is an integer of at least 1, or null.
+def test_stack_schema_has_minimum_one_and_maximum():
+    # The generated schema says stack is an integer of at least 1, and at
+    # most its sanity ceiling, or null.
     schema = StarList.model_json_schema()
 
     assert schema["properties"]["stack"]["anyOf"] == [
-        {"type": "integer", "minimum": 1},
+        {"type": "integer", "minimum": 1, "maximum": 32767},
         {"type": "null"},
     ]
 
@@ -485,15 +620,19 @@ def test_photometry_software_survives_a_table_round_trip():
     assert result == star_list
 
 
+# obs_time is left out: its pattern allows at most 32 characters, so its
+# maxLength of 63 cannot be reached by a valid value.
 @pytest.mark.parametrize(
-    "field_name,limit", list(STRING_LIMITS.items()), ids=list(STRING_LIMITS)
+    "field_name,limit",
+    [(name, limit) for name, limit in STRING_LIMITS.items() if name != "obs_time"],
+    ids=[name for name in STRING_LIMITS if name != "obs_time"],
 )
 def test_string_field_accepts_its_maximum_length(field_name, limit):
     # A string exactly as long as its field allows is accepted and kept.
     data = StarList.from_examples().model_dump()
-    data[field_name] = "x" * limit
+    data[field_name] = _string_of_length(field_name, limit)
 
-    assert getattr(StarList.model_validate(data), field_name) == "x" * limit
+    assert getattr(StarList.model_validate(data), field_name) == data[field_name]
 
 
 @pytest.mark.parametrize(
@@ -502,7 +641,7 @@ def test_string_field_accepts_its_maximum_length(field_name, limit):
 def test_string_field_rejects_one_character_over_its_maximum(field_name, limit):
     # One character over the limit is rejected, naming the field and the limit.
     data = StarList.from_examples().model_dump()
-    data[field_name] = "x" * (limit + 1)
+    data[field_name] = _string_of_length(field_name, limit + 1)
 
     with pytest.raises(ValidationError, match=f"at most {limit} characters") as excinfo:
         StarList.model_validate(data)
@@ -561,6 +700,185 @@ def test_staritems_rejects_one_over_the_maximum():
         StarList.model_validate(data)
     schema = StarList.model_json_schema()
     assert schema["properties"]["staritems"]["maxItems"] == 100_000
+
+
+@pytest.mark.parametrize("value", ["MMU", "AB", "ABCDEFG"])
+def test_observer_accepts_a_code_of_2_to_7_uppercase_letters(value):
+    # An observer code is 2 to 7 uppercase letters, as AAVSO issues it.
+    data = StarList.from_examples().model_dump()
+    data["observer"] = value
+
+    assert StarList.model_validate(data).observer == value
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["mmu", "Mmu", "MM1", "M", "ABCDEFGH", "", "M U", "ÄBC"],
+    ids=["lowercase", "mixed-case", "digit", "one-letter", "eight-letters", "empty", "space",
+         "non-ascii"],
+)
+def test_observer_rejects_anything_but_2_to_7_uppercase_letters(value):
+    # Lowercase, digits, other characters and a code too short or too long are
+    # all refused, naming the field.
+    data = StarList.from_examples().model_dump()
+    data["observer"] = value
+
+    with pytest.raises(ValidationError) as excinfo:
+        StarList.model_validate(data)
+
+    assert excinfo.value.errors()[0]["loc"] == ("observer",)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "2021-06-15T03:45:00",
+        "2021-06-15T03:45:00Z",
+        "2021-06-15 03:45:00",
+        "2021-06-15T03:45:00.123456",
+        "2021-06-15T03:45:00+05:30",
+        "2021-06-15T03:45:00-07:00",
+        "2020-02-29T00:00:00",
+    ],
+    ids=["plain", "z", "space", "microseconds", "plus-offset", "minus-offset", "leap-day"],
+)
+def test_obs_time_accepts_the_1_0_0_form(value):
+    # obs_time of the 1.0.0 form is accepted and kept as the file's text.
+    data = StarList.from_examples().model_dump()
+    data["obs_time"] = value
+
+    assert StarList.model_validate(data).obs_time == value
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "2021-06-15",
+        "2021-06-15T03",
+        "20210615T034500",
+        "2021-W24-2T03:45:00",
+        "2021-06-15t03:45:00",
+        "2021-06-15T03:45:00z",
+        "2021-06-15T03:45:00.1234567",
+        "2021-06-15T03:45:00+0530",
+        "2021-06-15x03:45:00",
+        "2021-13-01T00:00:00",
+        "2021-06-15T24:00:00",
+        "not a time",
+        "2021-06-15T03:45:00+00:60",
+        "2021-06-15T03:45:00+00:99",
+        "2021-06-15T03:45:60",
+        "2021-02-30T00:00:00",
+        "2021-02-29T00:00:00",
+        "2021-00-10T00:00:00",
+    ],
+    ids=["date-only", "hour-only", "basic", "week-date", "lowercase-t", "lowercase-z",
+         "seven-digit-fraction", "offset-without-colon", "other-separator", "month-13",
+         "hour-24", "text", "offset-minute-60", "offset-minute-99", "second-60",
+         "february-30", "february-29-non-leap", "month-00"],
+)
+def test_obs_time_rejects_anything_but_the_1_0_0_form(value):
+    # A string not of the form YYYY-MM-DDTHH:MM:SS[.ffffff][Z|+HH:MM] is
+    # refused by the pattern, and one of that form that is not a real date
+    # and time (month 13, hour 24) by the check that follows it; either way
+    # the error is located at the field.
+    data = StarList.from_examples().model_dump()
+    data["obs_time"] = value
+
+    with pytest.raises(ValidationError) as excinfo:
+        StarList.model_validate(data)
+
+    error = excinfo.value.errors()[0]
+    assert error["loc"] == ("obs_time",)
+    assert error["type"] in ("string_pattern_mismatch", "value_error")
+
+
+def test_obs_time_schema_has_a_pattern_and_no_format():
+    # The JSON schema states the same form the model checks, as a pattern,
+    # and no format: "date-time" would mean RFC 3339, which requires an
+    # offset and allows a lowercase t, unlike the model.
+    schema = StarList.model_json_schema()["properties"]["obs_time"]
+
+    assert schema["pattern"] == _OBS_TIME_PATTERN
+    assert schema["maxLength"] == 63
+    assert "format" not in schema
+    assert schema["scale"] == "UTC"
+
+
+@pytest.mark.parametrize("field_name, limit", INT_MAXIMA.items(), ids=list(INT_MAXIMA))
+def test_int_field_accepts_its_maximum(field_name, limit):
+    # An int field at its sanity ceiling is accepted and kept.
+    data = StarList.from_examples().model_dump()
+    data[field_name] = limit
+
+    assert getattr(StarList.model_validate(data), field_name) == limit
+
+
+@pytest.mark.parametrize("field_name, limit", INT_MAXIMA.items(), ids=list(INT_MAXIMA))
+def test_int_field_rejects_one_over_its_maximum(field_name, limit):
+    # One over the ceiling is refused, naming the field and the limit.
+    data = StarList.from_examples().model_dump()
+    data[field_name] = limit + 1
+
+    with pytest.raises(ValidationError, match=f"less than or equal to {limit}") as excinfo:
+        StarList.model_validate(data)
+
+    assert excinfo.value.errors()[0]["loc"] == (field_name,)
+
+
+def test_star_lists_accepts_the_maximum_number():
+    # A starlist set of exactly 1000 star lists, the cap, is accepted.
+    data = flooded(_one_star_set_data(), ("star_lists",), _one_star_set_data()["star_lists"][0], 1000)
+
+    assert len(StarListSet.model_validate(data).star_lists) == 1000
+
+
+def test_star_lists_rejects_one_over_the_maximum():
+    # One star list over the cap is refused at the field.
+    data = flooded(_one_star_set_data(), ("star_lists",), _one_star_set_data()["star_lists"][0], 1001)
+
+    with pytest.raises(ValidationError, match="at most 1000 items") as excinfo:
+        StarListSet.model_validate(data)
+
+    assert excinfo.value.errors()[0]["loc"] == ("star_lists",)
+
+
+def test_photometry_software_accepts_the_maximum_number():
+    # A star list naming exactly 100 software packages, the cap, is accepted.
+    data = StarList.from_examples().model_dump()
+    data["photometry_software"] = ["bandaid 1.2.3"] * 100
+
+    assert len(StarList.model_validate(data).photometry_software) == 100
+
+
+def test_photometry_software_rejects_one_over_the_maximum():
+    # One software entry over the cap is refused at the field.
+    data = StarList.from_examples().model_dump()
+    data["photometry_software"] = ["bandaid 1.2.3"] * 101
+
+    with pytest.raises(ValidationError, match="at most 100 items") as excinfo:
+        StarList.model_validate(data)
+
+    assert excinfo.value.errors()[0]["loc"] == ("photometry_software",)
+
+
+def test_reference_schema_states_the_1_0_0_limits():
+    # The committed schema_definition.json, which other languages validate
+    # against, carries each limit 1.0.0 added.
+    schema = json.loads((DATA_DIR / "schema_definition.json").read_text())
+    star_list = schema["$defs"]["StarList"]["properties"]
+
+    assert schema["properties"]["star_lists"]["maxItems"] == 1000
+    assert star_list["photometry_software"]["maxItems"] == 100
+    assert star_list["observer"]["pattern"] == "^[A-Z]{2,7}$"
+    assert star_list["tel_manufac"]["maxLength"] == 31
+    assert star_list["tel_model"]["maxLength"] == 31
+    assert star_list["obs_time"]["pattern"] == _OBS_TIME_PATTERN
+    assert "format" not in star_list["obs_time"]
+    assert star_list["obs_time"]["maxLength"] == 63
+    for name, limit in INT_MAXIMA.items():
+        types = star_list[name].get("anyOf", [star_list[name]])
+        assert types[0]["maximum"] == limit, name
 
 
 def _count_cells(row):
@@ -646,6 +964,10 @@ def _markdown_row(klass, field_name):
         (StarList, "staritems", "list[StarItem]", "[]"),
         (StarList, "filter", "AAVSOFilters", '"TG"'),
         (StarList, "observer", "str", '"MMU"'),
+        (StarList, "width", "int", "2048"),
+        (StarList, "stack", r"int \| None", "3"),
+        (StarList, "bias", r"float \| None", "1000.0"),
+        (StarItem, "x", "float", "1206.78"),
         (StarListSet, "star_lists", "list[StarList]", "[]"),
     ],
 )

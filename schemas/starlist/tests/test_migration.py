@@ -13,19 +13,30 @@ from typing import List  # noqa: UP035 -- the bare typing.List is tested
 
 import numpy as np
 import pytest
-from _helpers import float_fields
+from _helpers import float_fields, int_fields
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 import _aavso_starlist_legacy
 import _aavso_starlist_v0_2
 import _aavso_starlist_v0_3
+import _aavso_starlist_v0_4
 from aavso_starlist_schema import (
     _0_3_STAR_ITEM_FLOATS,
     _0_3_STAR_LIST_FLOATS,
     _0_4_MAX_PHOTOMETRY_SOFTWARE_ENTRY,
     _0_4_MAX_STARITEMS,
     _0_4_MAX_STRING_LENGTHS,
+    _0_4_STAR_ITEM_FLOATS,
+    _0_4_STAR_LIST_FLOATS,
+    _0_4_STAR_LIST_INTS,
+    _1_INT_MAXIMA,
+    _1_MAX_PHOTOMETRY_SOFTWARE,
+    _1_MAX_STAR_LISTS,
+    _1_MAX_STRING_LENGTHS,
+    _1_OBS_TIME,
+    _1_OBSERVER,
     _MIGRATIONS,
+    _OBS_TIME_PATTERN,
     SCHEMA_VERSION,
     AAVSOFilters,
     MigrationResultError,
@@ -35,6 +46,7 @@ from aavso_starlist_schema import (
     StarList,
     StarListSet,
     UnsupportedSchemaVersionError,
+    _1_is_iso_datetime,
     _generation,
     _Migration,
     _parse_semver,
@@ -274,12 +286,15 @@ def test_each_migration_step_receives_data_stamped_with_its_source_version(mocke
     assert result["schema_version"] == "1.0.0"
 
 
-def test_gap_in_migration_chain_names_the_generation_without_a_migration(mocker):
+def test_gap_in_migration_chain_names_the_generation_without_a_migration(
+    mocker, next_generation_version
+):
     # A breaking bump whose migration out of the generation being left has not
     # been written yet must say so, not fail with a bare KeyError. Simulate a
-    # bump to 1.0.0 with no migration out of 0.4: a legacy file still has its
-    # steps to 0.2, 0.3 and 0.4, then has nowhere to go.
-    mocker.patch("aavso_starlist_schema.SCHEMA_VERSION", "1.0.0")
+    # bump to the next generation with no migration out of the current one: a
+    # legacy file still has its steps up to the current generation, then has
+    # nowhere to go.
+    mocker.patch("aavso_starlist_schema.SCHEMA_VERSION", next_generation_version)
     expected = f"no migration out of schema generation {_generation(SCHEMA_VERSION)!r}"
 
     with pytest.raises(UnsupportedSchemaVersionError, match=expected):
@@ -996,17 +1011,22 @@ def test_0_2_file_with_photometry_software_already_gets_unknown(value):
 
 
 def test_legacy_file_is_upgraded_through_every_migration():
-    # A legacy file is migrated to 0.2, then to 0.3 and on to the current
-    # generation, and so gets photometry_software ["unknown"] too. (That the
-    # warning names every step is checked by
-    # test_legacy_versions_are_upgraded_with_warning.)
+    # A legacy file is migrated to 0.2, then to 0.3, 0.4 and on to the
+    # current generation, and so gets photometry_software ["unknown"] too,
+    # and through the 0.4 step its lowercase observer code is uppercased and
+    # a number written as a string becomes a number. (That the warning names
+    # every step is checked by test_legacy_versions_are_upgraded_with_warning.)
     before, _ = _before_after_pair("legacy")
+    before["star_lists"][0]["observer"] = "mmu"
+    before["star_lists"][0]["exposure"] = "30"
 
     with pytest.warns(SchemaMigrationWarning):
         result = StarListSet.model_validate(before)
 
     assert result.schema_version == SCHEMA_VERSION
     assert result.star_lists[0].photometry_software == ["unknown"]
+    assert result.star_lists[0].observer == "MMU"
+    assert result.star_lists[0].exposure == 30.0
 
 
 @pytest.mark.parametrize(
@@ -1137,15 +1157,17 @@ def test_stack_below_one_in_a_0_3_file_becomes_none(value):
 )
 def test_stack_of_one_or_none_in_a_0_3_file_is_kept(value):
     # A stack of 1 or more, or None, is valid for 0.4.0 and comes through
-    # the migration unchanged, even an int too large for a float.
+    # the 0.3 migration unchanged, even an int too large for a float (which
+    # the 0.4 to 1 migration then refuses, see
+    # test_0_4_file_the_new_generation_cannot_hold_is_rejected).
     data = _written_at_0_3()
     data["star_lists"][0]["stack"] = value
 
-    with pytest.warns(SchemaMigrationWarning):
-        result = StarListSet.model_validate(data)
+    migrated = _MIGRATIONS["0.3"].func(copy.deepcopy(data))
+    migrated["schema_version"] = _MIGRATIONS["0.3"].target
 
-    assert result.star_lists[0].stack == value
-    assert _MIGRATIONS["0.3"].func(copy.deepcopy(data))["star_lists"][0]["stack"] == value
+    assert migrated["star_lists"][0]["stack"] == value
+    assert _aavso_starlist_v0_4.StarListSet.model_validate(migrated).star_lists[0].stack == value
 
 
 def _set_star_item_x_to_infinity(data):
@@ -1376,10 +1398,9 @@ def test_0_3_migration_float_field_lists_match_the_frozen_models():
 
 def test_0_3_migration_limits_match_the_0_4_models():
     # The migration names the 0.4.0 string and star item limits as literals,
-    # since it is frozen once released; they must be the limits of the 0.4
-    # models. Valid while 0.4 is the current generation: once it is left,
-    # compare against the frozen 0.4 models instead.
-    properties = StarList.model_json_schema()["properties"]
+    # since it is frozen once released; they must be the limits of the frozen
+    # 0.4 models.
+    properties = _aavso_starlist_v0_4.StarList.model_json_schema()["properties"]
 
     assert _0_4_MAX_STRING_LENGTHS == {
         name: prop["maxLength"] for name, prop in properties.items() if "maxLength" in prop
@@ -1391,9 +1412,11 @@ def test_0_3_migration_limits_match_the_0_4_models():
     assert _0_4_MAX_STARITEMS == properties["staritems"]["maxItems"]
 
 
-def test_0_3_file_at_the_new_limits_is_upgraded():
+def test_0_3_file_at_the_new_limits_is_migrated_to_0_4():
     # A 0.3 file with strings exactly as long as 0.4.0 allows and exactly
-    # 100000 star items is upgraded, with the warning, and keeps them.
+    # 100000 star items is migrated to a file the frozen 0.4 model accepts,
+    # which keeps them. (Some of those strings are no longer valid in 1.0.0,
+    # which the 0.4 to 1 migration refuses.)
     data = _written_at_0_3()
     star_list = data["star_lists"][0]
     for name, limit in _0_4_MAX_STRING_LENGTHS.items():
@@ -1401,8 +1424,9 @@ def test_0_3_file_at_the_new_limits_is_upgraded():
     star_list["photometry_software"] = ["x" * _0_4_MAX_PHOTOMETRY_SOFTWARE_ENTRY]
     star_list["staritems"] = [star_list["staritems"][1]] * _0_4_MAX_STARITEMS
 
-    with pytest.warns(SchemaMigrationWarning):
-        result = StarListSet.model_validate(data)
+    migrated = _MIGRATIONS["0.3"].func(copy.deepcopy(data))
+    migrated["schema_version"] = _MIGRATIONS["0.3"].target
+    result = _aavso_starlist_v0_4.StarListSet.model_validate(migrated)
 
     upgraded = result.star_lists[0]
     for name, limit in _0_4_MAX_STRING_LENGTHS.items():
@@ -1425,9 +1449,608 @@ def test_0_3_star_items_given_as_a_generator_are_all_upgraded():
     assert len(result.star_lists[0].staritems) == 2
 
 
+def _written_at_0_4(version="0.4.1"):
+    """
+    Load the sample file of the 0.4 generation, stamped at a version of it.
+
+    Parameters
+    ----------
+    version : {"0.4.0", "0.4.1"}, optional
+        The version the file is to state. Default ``"0.4.1"``, the version
+        ``before.json`` of the 0.4 migration states.
+
+    Returns
+    -------
+    dict
+        A deep copy of ``before.json`` of the 0.4 migration, which carries a
+        lowercase observer code and a number written as a string, with
+        ``schema_version`` set to ``version``. The frozen 0.4 model, a copy
+        of 0.4.1, validates it at either version.
+    """
+    before, _ = _before_after_pair("0.4")
+    data = copy.deepcopy(before)
+    data["schema_version"] = version
+    return data
+
+
+@pytest.mark.parametrize("version", ["0.4.0", "0.4.1"])
+def test_0_4_file_is_validated_against_the_frozen_0_4_model(version):
+    # validate_as_written checks a file from any 0.4 version against the
+    # frozen 0.4 model, without upgrading it, so without a warning.
+    result = validate_as_written(_written_at_0_4(version))
+
+    assert isinstance(result, _aavso_starlist_v0_4.StarListSet)
+    assert result.schema_version == version
+
+
+@pytest.mark.parametrize("version", ["0.4.0", "0.4.1"])
+def test_0_4_file_is_upgraded_with_one_warning_naming_the_0_4_step(version):
+    # A file from any 0.4 version is upgraded with one warning, naming the
+    # 0.4 migration but not the earlier ones, to the current version.
+    with pytest.warns(SchemaMigrationWarning) as record:
+        result = StarListSet.model_validate(_written_at_0_4(version))
+
+    assert len(record) == 1
+    message = str(record[0].message)
+    assert repr(version) in message
+    assert _MIGRATIONS["0.4"].summary in message
+    assert _MIGRATIONS["0.3"].summary not in message
+    assert "dropped" not in message
+
+    assert result.schema_version == SCHEMA_VERSION
+
+
+@pytest.mark.parametrize("value", ["mmu", "Mmu", "abcdefg", "MMU"])
+def test_observer_code_of_a_0_4_file_is_uppercased(value):
+    # AAVSO issues observer codes in uppercase, so a 0.4 code of 2 to 7
+    # letters in any case is the same code uppercased; one already in
+    # uppercase is kept.
+    data = _written_at_0_4()
+    data["star_lists"][0]["observer"] = value
+
+    with pytest.warns(SchemaMigrationWarning):
+        result = StarListSet.model_validate(data)
+    migrated = _MIGRATIONS["0.4"].func(copy.deepcopy(data))
+
+    assert result.star_lists[0].observer == value.upper()
+    assert migrated["star_lists"][0]["observer"] == value.upper()
+
+
+@pytest.mark.parametrize(
+    "level, name, value, expected",
+    [
+        pytest.param("star list", "bias", "1000", 1000.0, id="string-float"),
+        pytest.param("star list", "egain", True, 1.0, id="bool-float"),
+        pytest.param("star list", "width", "2048", 2048, id="string-int"),
+        pytest.param("star list", "stack", True, 1, id="bool-int"),
+        pytest.param("star item", "x", "12.5", 12.5, id="string-star-item"),
+        pytest.param("star item", "bkgd_count", False, 0.0, id="bool-star-item"),
+    ],
+)
+def test_number_given_as_a_string_or_bool_in_a_0_4_file_becomes_the_number(
+    level, name, value, expected
+):
+    # The 0.4 models read a bool or a numeric string in a numeric field as a
+    # number (pydantic's lax mode); 1.0.0 refuses both, so the migration
+    # writes the number the 0.4 reader produced, of the field's own type.
+    data = _written_at_0_4()
+    star_list = data["star_lists"][0]
+    record = star_list if level == "star list" else star_list["staritems"][0]
+    record[name] = value
+
+    with pytest.warns(SchemaMigrationWarning):
+        result = StarListSet.model_validate(data)
+    migrated = _MIGRATIONS["0.4"].func(copy.deepcopy(data))["star_lists"][0]
+
+    upgraded = result.star_lists[0]
+    if level == "star item":
+        upgraded = upgraded.staritems[0]
+        migrated = migrated["staritems"][0]
+    assert getattr(upgraded, name) == expected
+    assert migrated[name] == expected
+    assert type(migrated[name]) is type(expected)
+
+
+@pytest.mark.parametrize(
+    "level, name, expected",
+    [
+        pytest.param("star list", "bias", 1.0, id="float"),
+        pytest.param("star list", "width", 1, id="int"),
+        pytest.param("star item", "x", 1.0, id="star-item"),
+    ],
+)
+def test_numpy_bool_in_a_0_4_file_becomes_the_number(level, name, expected):
+    # Data built in Python may hold a numpy bool, which the frozen 0.4 model
+    # reads as a number and 1.0.0 refuses like a bool; the migration repairs
+    # it, so the upgrade is not a MigrationResultError.
+    data = _written_at_0_4()
+    star_list = data["star_lists"][0]
+    record = star_list if level == "star list" else star_list["staritems"][0]
+    record[name] = np.bool_(True)
+
+    with pytest.warns(SchemaMigrationWarning):
+        result = StarListSet.model_validate(data)
+
+    upgraded = result.star_lists[0]
+    if level == "star item":
+        upgraded = upgraded.staritems[0]
+    assert getattr(upgraded, name) == expected
+    assert type(getattr(upgraded, name)) is type(expected)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [True, np.bool_(True), "1", b"1", np.array("1"), np.array(True), np.array(b"1"),
+     np.void(b"1")],
+    ids=["bool", "numpy-bool", "str", "bytes", "str-array", "bool-array", "bytes-array",
+         "void"],
+)
+def test_0_4_migration_repairs_every_kind_the_current_model_refuses(value):
+    # Each kind of value _reject_bool_and_str refuses in a numeric field is
+    # one the 0.4 to 1 migration repairs, in a float and an int field, so the
+    # two lists cannot drift apart: the migrated data is valid for 1.0.0.
+    data = _written_at_0_4()
+    data["star_lists"][0]["bias"] = value
+    data["star_lists"][0]["stack"] = value
+
+    migrated = _MIGRATIONS["0.4"].func(copy.deepcopy(data))
+    migrated["schema_version"] = SCHEMA_VERSION
+
+    star_list = StarListSet.model_validate(migrated).star_lists[0]
+    assert star_list.bias == 1.0
+    assert star_list.stack == 1
+
+
+@pytest.mark.parametrize(
+    "name, value, expected",
+    [
+        pytest.param(name, value, expected, id=f"{name}-{value}")
+        for name in _0_4_STAR_LIST_INTS
+        for value, expected in [("5E+1", 50), ("0E+2", 0)]
+        # 0 is valid for 0.4 only where the field allows it.
+        if expected or name in ("adc_depth", "largest_usable_adu_value")
+    ],
+)
+def test_decimal_with_an_exponent_in_a_0_4_int_field_becomes_the_int(name, value, expected):
+    # The frozen 0.4 model reads a Decimal with an exponent in an int field
+    # as the int, but plain data holds it as a string such as "5E+1", which
+    # lax mode cannot read as an int; the migration reads it as a Decimal,
+    # so the upgrade gives the int and not a MigrationResultError.
+    data = _written_at_0_4()
+    data["star_lists"][0][name] = decimal.Decimal(value)
+
+    with pytest.warns(SchemaMigrationWarning):
+        result = StarListSet.model_validate(data)
+
+    assert getattr(result.star_lists[0], name) == expected
+    assert type(getattr(result.star_lists[0], name)) is int
+
+
+def test_decimal_with_an_exponent_in_a_0_4_float_field_becomes_the_float():
+    # A Decimal with an exponent in a float field reaches the migration as a
+    # string such as "1.5E+3", which lax mode reads as the float.
+    data = _written_at_0_4()
+    data["star_lists"][0]["bias"] = decimal.Decimal("1.5E+3")
+
+    with pytest.warns(SchemaMigrationWarning):
+        result = StarListSet.model_validate(data)
+
+    assert result.star_lists[0].bias == 1500.0
+
+
+# Numpy wrappers of a bool, a str or bytes, which lax mode reads as numbers,
+# each with the number it reads as.
+NUMPY_WRAPPERS = [
+    pytest.param(np.array("5"), 5, id="str-array"),
+    pytest.param(np.array(True), 1, id="bool-array"),
+    pytest.param(np.array(b"5"), 5, id="bytes-array"),
+    pytest.param(np.void(b"5"), 5, id="void"),
+]
+
+
+@pytest.mark.parametrize("value, expected", NUMPY_WRAPPERS)
+@pytest.mark.parametrize("name", ["bias", "width"])
+def test_numpy_wrapper_in_a_0_4_file_becomes_the_number(name, value, expected):
+    # Data built in Python may hold a numpy wrapper of a bool, a str or
+    # bytes in a numeric field, which the frozen 0.4 model reads as a number
+    # and 1.0.0 refuses; the migration unwraps and repairs it.
+    data = _written_at_0_4()
+    data["star_lists"][0][name] = value
+
+    with pytest.warns(SchemaMigrationWarning):
+        result = StarListSet.model_validate(data)
+
+    assert getattr(result.star_lists[0], name) == expected
+
+
+def test_0_4_value_lax_mode_cannot_read_is_left_for_validation():
+    # Only upgrade() called directly can pass a string the 0.4 reader would
+    # not have read as a number; the migration leaves it as given, and the
+    # current model then refuses it.
+    data = _written_at_0_4()
+    data["star_lists"][0]["bias"] = "high"
+    data["star_lists"][0]["width"] = "wide"
+
+    with pytest.warns(SchemaMigrationWarning):
+        upgraded = upgrade(data)
+
+    assert upgraded["star_lists"][0]["bias"] == "high"
+    assert upgraded["star_lists"][0]["width"] == "wide"
+    with pytest.raises(ValidationError):
+        StarListSet.model_validate(upgraded)
+
+
+def _set_one(path, value):
+    """
+    Make a function that sets one value of 0.4 sample data.
+
+    Parameters
+    ----------
+    path : tuple of str or int
+        The keys and indexes leading from the starlist set to the value, such
+        as ``("star_lists", 0, "observer")``.
+    value : object
+        The value to set.
+
+    Returns
+    -------
+    callable
+        Takes starlist-set data and sets ``value`` at ``path`` in place.
+    """
+    def mutate(data):
+        """
+        Set the value in starlist-set data.
+
+        Parameters
+        ----------
+        data : dict
+            Raw starlist-set data, modified in place.
+        """
+        parent = data
+        for key in path[:-1]:
+            parent = parent[key]
+        parent[path[-1]] = value
+
+    return mutate
+
+
+def _set_1001_star_lists(data):
+    """
+    Give 0.4 sample data one star list more than 1.0.0 allows.
+
+    Parameters
+    ----------
+    data : dict
+        Raw starlist-set data, modified in place.
+    """
+    data["star_lists"] = [data["star_lists"][1]] * (_1_MAX_STAR_LISTS + 1)
+
+
+@pytest.mark.parametrize(
+    "mutate, path, problem",
+    [
+        pytest.param(
+            _set_one(("star_lists", 0, "observer"), "MM1"),
+            "star_lists[0].observer",
+            "requires an observer code of 2 to 7 letters",
+            id="observer-digit",
+        ),
+        pytest.param(
+            _set_one(("star_lists", 1, "observer"), "M"),
+            "star_lists[1].observer",
+            "requires an observer code of 2 to 7 letters",
+            id="observer-one-letter",
+        ),
+        pytest.param(
+            _set_one(("star_lists", 0, "observer"), "M U"),
+            "star_lists[0].observer",
+            "requires an observer code of 2 to 7 letters",
+            id="observer-space",
+        ),
+        pytest.param(
+            _set_one(("star_lists", 0, "obs_time"), "not a time"),
+            "star_lists[0].obs_time",
+            "requires obs_time of the form YYYY-MM-DDTHH:MM:SS[.ffffff][Z|±HH:MM]",
+            id="obs-time-text",
+        ),
+        pytest.param(
+            _set_one(("star_lists", 0, "obs_time"), "2021-06-15"),
+            "star_lists[0].obs_time",
+            "requires obs_time of the form YYYY-MM-DDTHH:MM:SS[.ffffff][Z|±HH:MM]",
+            id="obs-time-date-only",
+        ),
+        pytest.param(
+            _set_one(("star_lists", 0, "obs_time"), "2021-06-15t03:45:00"),
+            "star_lists[0].obs_time",
+            "requires obs_time of the form YYYY-MM-DDTHH:MM:SS[.ffffff][Z|±HH:MM]",
+            id="obs-time-lowercase-t",
+        ),
+        pytest.param(
+            _set_one(("star_lists", 0, "obs_time"), "2021-13-01T00:00:00"),
+            "star_lists[0].obs_time",
+            "requires obs_time of the form YYYY-MM-DDTHH:MM:SS[.ffffff][Z|±HH:MM]",
+            id="obs-time-month-13",
+        ),
+        pytest.param(
+            _set_one(("star_lists", 0, "obs_time"), "2021-02-30T00:00:00"),
+            "star_lists[0].obs_time",
+            "requires obs_time of the form YYYY-MM-DDTHH:MM:SS[.ffffff][Z|±HH:MM]",
+            id="obs-time-february-30",
+        ),
+        pytest.param(
+            _set_one(("star_lists", 0, "obs_time"), "2021-06-15T03:45:00+00:60"),
+            "star_lists[0].obs_time",
+            "requires obs_time of the form YYYY-MM-DDTHH:MM:SS[.ffffff][Z|±HH:MM]",
+            id="obs-time-offset-minute-60",
+        ),
+        pytest.param(
+            _set_one(("star_lists", 0, "tel_manufac"), "x" * 32),
+            "star_lists[0].tel_manufac",
+            "has 32 characters; schema version 1.0.0 allows at most 31",
+            id="tel-manufac-too-long",
+        ),
+        pytest.param(
+            _set_one(("star_lists", 1, "tel_model"), "x" * 63),
+            "star_lists[1].tel_model",
+            "has 63 characters; schema version 1.0.0 allows at most 31",
+            id="tel-model-too-long",
+        ),
+        pytest.param(
+            _set_one(("star_lists", 0, "width"), 32768),
+            "star_lists[0].width",
+            "is 32768; schema version 1.0.0 allows at most 32767",
+            id="width-one-over",
+        ),
+        pytest.param(
+            _set_one(("star_lists", 0, "height"), 32768),
+            "star_lists[0].height",
+            "is 32768; schema version 1.0.0 allows at most 32767",
+            id="height-one-over",
+        ),
+        pytest.param(
+            _set_one(("star_lists", 0, "stack"), 32768),
+            "star_lists[0].stack",
+            "is 32768; schema version 1.0.0 allows at most 32767",
+            id="stack-one-over",
+        ),
+        pytest.param(
+            _set_one(("star_lists", 0, "width"), 40000),
+            "star_lists[0].width",
+            "is 40000; schema version 1.0.0 allows at most 32767",
+            id="width-too-large",
+        ),
+        pytest.param(
+            _set_one(("star_lists", 0, "height"), "70000"),
+            "star_lists[0].height",
+            "is 70000; schema version 1.0.0 allows at most 32767",
+            id="height-too-large-as-string",
+        ),
+        pytest.param(
+            _set_one(("star_lists", 0, "stack"), 10**400),
+            "star_lists[0].stack",
+            "schema version 1.0.0 allows at most 32767",
+            id="stack-huge",
+        ),
+        pytest.param(
+            _set_one(("star_lists", 0, "adc_depth"), 65),
+            "star_lists[0].adc_depth",
+            "is 65; schema version 1.0.0 allows at most 64",
+            id="adc-depth-too-large",
+        ),
+        pytest.param(
+            _set_one(("star_lists", 0, "largest_usable_adu_value"), 2**31),
+            "star_lists[0].largest_usable_adu_value",
+            "is 2147483648; schema version 1.0.0 allows at most 2147483647",
+            id="adu-value-too-large",
+        ),
+        pytest.param(
+            _set_one(("star_lists", 0, "photometry_software"), ["bandaid 1.2.3"] * 101),
+            "star_lists[0].photometry_software",
+            "has 101 entries; schema version 1.0.0 allows at most 100",
+            id="too-many-software-entries",
+        ),
+        pytest.param(
+            _set_1001_star_lists,
+            "star_lists",
+            "has 1001 entries; schema version 1.0.0 allows at most 1000",
+            id="too-many-star-lists",
+        ),
+    ],
+)
+def test_0_4_file_the_new_generation_cannot_hold_is_rejected(mutate, path, problem):
+    # A 0.4 file may hold a value 1.0.0 has no form for: an observer code
+    # that is not 2 to 7 letters, an obs_time not of the 1.0.0 form or not a
+    # real date and time, a telescope string longer than 31 characters, an integer
+    # over its new maximum (also as a string, which the frozen 0.4 model
+    # accepts), or more star lists or software entries than 1.0.0 allows.
+    # The migration refuses it naming the field: through the model that is
+    # the usual ValidationError, not a MigrationResultError; from upgrade()
+    # it is the ValueError itself. The refusal comes before the warning, so
+    # none is issued.
+    data = _written_at_0_4()
+    mutate(data)
+
+    with pytest.raises(ValidationError) as excinfo:
+        StarListSet.model_validate(data)
+    error = excinfo.value.errors()[0]
+    assert error["type"] == "value_error"
+    assert error["loc"] == ()
+    assert f"{path} " in error["msg"]
+    assert problem in error["msg"]
+    assert error["msg"].endswith("cannot be upgraded to it")
+    assert type(error["ctx"]["error"]) is ValueError
+
+    with pytest.raises(ValueError, match=re.escape(path)) as excinfo:
+        upgrade(data)
+    assert type(excinfo.value) is ValueError
+
+    # The file itself is valid for the schema it was written for.
+    validate_as_written(data)
+
+
+def test_0_4_migration_limits_match_the_current_models():
+    # The migration names the 1.0.0 limits as literals, since it is frozen
+    # once released; they must be the limits of the 1.0.0 models. Valid while
+    # 1 is the current generation: once it is left, compare against the
+    # frozen 1 models instead.
+    set_properties = StarListSet.model_json_schema()["properties"]
+    properties = StarList.model_json_schema()["properties"]
+
+    for name, limit in _1_MAX_STRING_LENGTHS.items():
+        assert properties[name]["maxLength"] == limit
+    assert _1_INT_MAXIMA == {
+        name: next(
+            entry["maximum"]
+            for entry in properties[name].get("anyOf", [properties[name]])
+            if "maximum" in entry
+        )
+        for name in int_fields(StarList)
+    }
+    assert _1_MAX_PHOTOMETRY_SOFTWARE == properties["photometry_software"]["maxItems"]
+    assert _1_MAX_STAR_LISTS == set_properties["star_lists"]["maxItems"]
+    # The migration accepts the letters in any case and uppercases them.
+    assert properties["observer"]["pattern"] == "^" + _1_OBSERVER.pattern.replace(
+        "A-Za-z", "A-Z"
+    ) + "$"
+
+
+@pytest.mark.parametrize(
+    "value, valid",
+    [
+        ("2021-06-15T03:45:00", True),
+        ("2021-06-15T03:45:00Z", True),
+        ("2021-06-15 03:45:00", True),
+        ("2021-06-15T03:45:00.123456", True),
+        ("2021-06-15T03:45:00+05:30", True),
+        ("2021-06-15T03:45:00-07:00", True),
+        ("2020-02-29T00:00:00", True),
+        ("2021-06-15", False),
+        ("2021-06-15T03", False),
+        ("20210615T034500", False),
+        ("2021-W24-2T03:45:00", False),
+        ("2021-06-15t03:45:00", False),
+        ("2021-06-15T03:45:00.1234567", False),
+        ("2021-06-15T03:45:00+0530", False),
+        ("2021-13-01T00:00:00", False),
+        ("2021-06-15T24:00:00", False),
+        ("not a time", False),
+        ("2021-06-15T03:45:00+00:60", False),
+        ("2021-06-15T03:45:00+00:99", False),
+        ("2021-06-15T03:45:00+24:00", False),
+        ("2021-06-15T03:45:60", False),
+        ("2016-12-31T23:59:60Z", False),
+        ("2021-02-30T00:00:00", False),
+        ("2021-02-29T00:00:00", False),
+        ("2021-00-10T00:00:00", False),
+        ("2021-06-15T03:45:00z", False),
+        ("2021-06-15x03:45:00", False),
+        ("2021-06-15T03:45:00\n", False),
+    ],
+)
+def test_0_4_migration_obs_time_rule_matches_the_current_model(value, valid):
+    # The migration carries its own frozen copy of the 1.0.0 obs_time rule
+    # (pattern and calendar check), since it is frozen once released; it must
+    # agree with the live model, pattern and validator together. Valid while
+    # 1 is the current generation: once it is left, compare against the
+    # frozen 1 models instead.
+    data = StarList.from_examples().model_dump()
+    data["obs_time"] = value
+    try:
+        StarList.model_validate(data)
+    except ValidationError:
+        accepted = False
+    else:
+        accepted = True
+
+    assert accepted is valid
+    assert _1_is_iso_datetime(value) is valid
+
+
+def test_obs_time_pattern_matches_the_frozen_migration_rule():
+    # The live pattern and the migration's frozen copy are separate literals;
+    # while 1 is the current generation they must be the same regex.
+    assert _OBS_TIME_PATTERN == "^" + _1_OBS_TIME.pattern + "$"
+
+
+def test_0_4_migration_number_field_lists_match_the_frozen_0_4_models():
+    # The migration names the 0.4 float and int fields as literals, since it
+    # is frozen once released; they must be exactly the numeric fields of the
+    # frozen 0.4 models, so none escapes the repair of booleans and strings.
+    assert _0_4_STAR_ITEM_FLOATS == float_fields(_aavso_starlist_v0_4.StarItem)
+    assert _0_4_STAR_LIST_FLOATS == float_fields(_aavso_starlist_v0_4.StarList)
+    assert _0_4_STAR_LIST_INTS == int_fields(_aavso_starlist_v0_4.StarList)
+    assert int_fields(_aavso_starlist_v0_4.StarItem) == ()
+
+
+def test_0_4_file_at_the_new_limits_is_upgraded():
+    # A 0.4 file exactly at every 1.0.0 limit (telescope strings, integer
+    # maxima, star lists and software entries) is upgraded, with the
+    # warning, and keeps its values.
+    data = _written_at_0_4()
+    star_list = data["star_lists"][1]
+    for name, limit in _1_MAX_STRING_LENGTHS.items():
+        star_list[name] = "x" * limit
+    for name, limit in _1_INT_MAXIMA.items():
+        star_list[name] = limit
+    star_list["photometry_software"] = ["bandaid 1.2.3"] * _1_MAX_PHOTOMETRY_SOFTWARE
+    data["star_lists"] = [star_list] * _1_MAX_STAR_LISTS
+
+    with pytest.warns(SchemaMigrationWarning):
+        result = StarListSet.model_validate(data)
+
+    assert len(result.star_lists) == _1_MAX_STAR_LISTS
+    upgraded = result.star_lists[0]
+    for name, limit in _1_MAX_STRING_LENGTHS.items():
+        assert getattr(upgraded, name) == "x" * limit
+    for name, limit in _1_INT_MAXIMA.items():
+        assert getattr(upgraded, name) == limit
+    assert len(upgraded.photometry_software) == _1_MAX_PHOTOMETRY_SOFTWARE
+
+
+def test_0_4_migration_handles_tuples_and_other_mappings():
+    # upgrade() called directly may pass star lists and star items as tuples
+    # and records as mappings that are not dicts; the migration reads them
+    # all, repairs what it repairs and returns lists of dicts.
+    data = _written_at_0_4()
+    star_list = data["star_lists"][0]
+    star_list["staritems"] = tuple(
+        MappingProxyType({**item, "x": "12.5"}) for item in star_list["staritems"]
+    )
+    data["star_lists"] = (_Mapping(star_list),)
+
+    migrated = _MIGRATIONS["0.4"].func(data)
+
+    [result] = migrated["star_lists"]
+    assert isinstance(migrated["star_lists"], list)
+    assert result["observer"] == "MMU"
+    assert result["bias"] == 1000.0
+    assert isinstance(result["staritems"], list)
+    assert [item["x"] for item in result["staritems"]] == [12.5, 12.5]
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"star_lists": "garbage"},
+        {"star_lists": [5, None]},
+        {"star_lists": [{"observer": 7, "obs_time": None, "staritems": "garbage"}]},
+        {"star_lists": [{"staritems": [5]}]},
+    ],
+    ids=["star-lists-not-a-list", "star-list-not-a-mapping", "wrong-types", "star-item-int"],
+)
+def test_0_4_migration_passes_unrecognised_shapes_through(data):
+    # The 0.4 -> 1 migration only touches what it recognises; anything else
+    # is passed through for the current model to reject.
+    assert _MIGRATIONS["0.4"].func(copy.deepcopy(data)) == data
+
+
 # The generations older than the current one, each a key of _MIGRATIONS whose
-# before.json sample (at 0.0.1.dev451+gde1568f, 0.2.1 and 0.3.2) is used.
-OLDER_GENERATIONS = ["legacy", "0.2", "0.3"]
+# before.json sample (at 0.0.1.dev451+gde1568f, 0.2.1, 0.3.2 and 0.4.1) is used.
+OLDER_GENERATIONS = ["legacy", "0.2", "0.3", "0.4"]
+
+# The older generations whose frozen models ignore keys they do not define;
+# from 0.4 on the models forbid them.
+IGNORING_GENERATIONS = ["legacy", "0.2", "0.3"]
 
 
 @pytest.mark.parametrize("generation", OLDER_GENERATIONS)
@@ -1474,7 +2097,7 @@ def _closed_file():
     return closed
 
 
-@pytest.mark.parametrize("generation", OLDER_GENERATIONS)
+@pytest.mark.parametrize("generation", IGNORING_GENERATIONS)
 def test_values_under_undefined_keys_of_an_older_file_are_not_read(generation):
     # A key no frozen model defines is dropped at every level before anything
     # reads its value: the frozen model ignores it, so reading it could only
@@ -1901,5 +2524,3 @@ def test_frozen_0_3_fields_reject_infinity(model, field_name):
         model.model_validate(data)
 
     assert excinfo.value.errors()[0]["loc"] == (field_name,)
-
-

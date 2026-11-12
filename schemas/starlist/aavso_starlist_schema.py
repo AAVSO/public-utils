@@ -7,6 +7,8 @@ point.
 """
 
 import copy
+import datetime
+import decimal
 import json
 import math
 import re
@@ -20,13 +22,27 @@ from typing import Annotated, NamedTuple, Union, get_args, get_origin
 
 import numpy as np
 from astropy.table import MaskedColumn, Table
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    ValidationError,
+    model_validator,
+)
 from pydantic.alias_generators import to_snake
-from pydantic_core import PydanticSerializationError, to_jsonable_python
+from pydantic_core import (
+    PydanticCustomError,
+    PydanticSerializationError,
+    to_jsonable_python,
+)
 
 import _aavso_starlist_legacy  # frozen models of the legacy generation
 import _aavso_starlist_v0_2  # frozen models of the 0.2 generation
 import _aavso_starlist_v0_3  # frozen models of the 0.3 generation
+import _aavso_starlist_v0_4  # frozen models of the 0.4 generation
 
 try:
     from _aavso_version import __version__  # top-level sibling, written by hatch-vcs
@@ -37,13 +53,15 @@ except ImportError:  # pragma: no cover - source tree without the generated file
 # deliberately independent of the package version above: bump it whenever the
 # generated schema under aavso_starlist_schema_data/ changes. The archive test
 # fails if the generated schema changes without bumping this constant.
-SCHEMA_VERSION = "0.4.1"
+SCHEMA_VERSION = "1.0.0"
 
 # Every released schema version from 0.2.0 on, oldest first; add each new
 # SCHEMA_VERSION here. Listed in the code, rather than read from the archive
 # folders, so the versions this reader accepts never depend on the filesystem.
 # The archive test fails if this differs from the archived versions.
-_RELEASED_VERSIONS = ("0.2.0", "0.2.1", "0.3.0", "0.3.1", "0.3.2", "0.4.0", "0.4.1")
+_RELEASED_VERSIONS = (
+    "0.2.0", "0.2.1", "0.3.0", "0.3.1", "0.3.2", "0.4.0", "0.4.1", "1.0.0",
+)
 
 __all__ = [
     "AAVSOFilters",
@@ -197,6 +215,103 @@ def _is_missing(value):
         return False
 
 
+def _reject_bool_and_str(value):
+    """
+    Refuse a boolean, string or bytes where a number is required.
+
+    Pydantic's lax mode reads ``true`` as 1 and ``"1000"`` as 1000 in a
+    numeric field, while JSON Schema's ``type: number`` and ``type: integer``
+    reject both. Run before the number is validated, this makes the models
+    refuse what the schema refuses and nothing more: an int in a float field,
+    ``3.0`` in an int field, numpy scalars, ``Decimal`` and ``Fraction`` are
+    still read as before.
+
+    Parameters
+    ----------
+    value : object
+        The raw input to a numeric field.
+
+    Returns
+    -------
+    object
+        ``value`` unchanged, for the number validation that follows.
+
+    Raises
+    ------
+    pydantic_core.PydanticCustomError
+        Of type ``number_type``, if ``value`` is a bool, a str or bytes, or
+        a numpy wrapper of one (a numpy scalar or a zero-dimensional array
+        of dtype kind ``b``, ``U``, ``S`` or ``V``), which lax mode would
+        also read as a number; pydantic reports it as a ``ValidationError``
+        at the field.
+    """
+    if isinstance(value, np.generic) or (isinstance(value, np.ndarray) and value.ndim == 0):
+        dtype_kind = value.dtype.kind
+    else:
+        dtype_kind = None
+    if isinstance(value, bool) or dtype_kind == "b":
+        kind = "a boolean"
+    elif isinstance(value, str) or dtype_kind == "U":
+        kind = "a string"
+    elif isinstance(value, (bytes, bytearray)) or dtype_kind in ("S", "V"):
+        kind = "bytes"
+    else:
+        return value
+    raise PydanticCustomError(
+        "number_type", "Input should be a number, not {kind}", {"kind": kind}
+    )
+
+
+# Goes after the Field(...) in the Annotated[...] of every numeric field, so
+# it refuses what JSON Schema's number and integer types refuse (see
+# _reject_bool_and_str). It must come after the Field: placed before it, as in
+# Annotated[Annotated[float, _NUMBER_ONLY], Field(ge=0)], pydantic can no
+# longer apply ge and the like to the number and fails at validation time.
+_NUMBER_ONLY = BeforeValidator(_reject_bool_and_str)
+
+# The form of obs_time, enforced by the model and stated in the JSON schema
+# alike: a date, an uppercase T or a space, a time with an optional fraction
+# of up to 6 digits, and an optional uppercase Z or +HH:MM/-HH:MM offset.
+# [0-9] rather than \d, which some regex engines read as any Unicode digit.
+_OBS_TIME_PATTERN = (
+    r"^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])"
+    r"[T ]([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]"
+    r"(\.[0-9]{1,6})?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])?$"
+)
+
+
+def _check_iso_datetime(value):
+    """
+    Check that an ``obs_time`` of the right form is a real date and time.
+
+    The field's ``pattern`` (`_OBS_TIME_PATTERN`) checks the form; this
+    checks what a regex cannot, such as February 30.
+
+    Parameters
+    ----------
+    value : str
+        The value of ``obs_time``, already matched against the pattern.
+
+    Returns
+    -------
+    str
+        ``value`` unchanged: the field keeps the file's text.
+
+    Raises
+    ------
+    ValueError
+        If ``datetime.datetime.fromisoformat`` cannot read ``value``.
+    """
+    try:
+        datetime.datetime.fromisoformat(value)
+    except ValueError:
+        raise ValueError(
+            "obs_time must be a valid ISO 8601 date and time, such as "
+            "2021-06-15T03:45:00 or 2021-06-15T03:45:00Z"
+        ) from None
+    return value
+
+
 class StarItem(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
     """
     Definition of individual entries in an AAVSO star list.
@@ -211,7 +326,8 @@ class StarItem(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             description="X-coordinate of the star center (in pixel coordinates)",
             json_schema_extra=dict(unit="pixel"),
             examples=[1206.78]
-        )
+        ),
+        _NUMBER_ONLY,
     ]
     y: Annotated[
         float,
@@ -221,7 +337,8 @@ class StarItem(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             description="Y-coordinate of the star center (in pixel coordinates)",
             json_schema_extra=dict(unit="pixel"),
             examples=[620.10]
-        )
+        ),
+        _NUMBER_ONLY,
     ]
     ra: Annotated[
         float,
@@ -235,7 +352,8 @@ class StarItem(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             ),
             json_schema_extra=dict(unit="degree"),
             examples=[212.56789]
-        )
+        ),
+        _NUMBER_ONLY,
     ]
     dec: Annotated[
         float,
@@ -249,7 +367,8 @@ class StarItem(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             ),
             json_schema_extra=dict(unit="degree"),
             examples=[-12.12345]
-        )
+        ),
+        _NUMBER_ONLY,
     ]
     tot_count: Annotated[
         float,
@@ -259,7 +378,8 @@ class StarItem(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             description="Total integrated counts of the star, background-subtracted",
             json_schema_extra=dict(unit="adu"),
             examples=[156700.4]
-        )
+        ),
+        _NUMBER_ONLY,
     ]
     count_err: Annotated[
         float,
@@ -269,7 +389,8 @@ class StarItem(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             description="Error in the total integrated counts of the star",
             json_schema_extra=dict(unit="adu"),
             examples=[15300.1]
-        )
+        ),
+        _NUMBER_ONLY,
     ]
     bkgd_count: Annotated[
         float,
@@ -278,7 +399,8 @@ class StarItem(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             description="Background count level per pixel in the vicinity of the star",
             json_schema_extra=dict(unit="adu"),
             examples=[1209.45]
-        )
+        ),
+        _NUMBER_ONLY,
     ]
     peak_count: Annotated[
         float,
@@ -288,7 +410,8 @@ class StarItem(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             description="Peak counts of the star",
             json_schema_extra=dict(unit="adu"),
             examples=[31454.963]
-        )
+        ),
+        _NUMBER_ONLY,
     ]
     fwhm: Annotated[
         float | None,
@@ -302,7 +425,8 @@ class StarItem(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             ),
             json_schema_extra=dict(unit="pixel"),
             examples=[3.4]
-        )
+        ),
+        _NUMBER_ONLY,
     ] = None
 
 
@@ -316,15 +440,23 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
         str,
         Field(
             max_length=63,
+            pattern=_OBS_TIME_PATTERN,
             title="Observation Start Time",
             json_schema_extra=dict(
                 unit=None,
-                format="date-time",
                 scale="UTC",
             ),
-            description="UTC time at start of observation",
+            description=(
+                "UTC time at start of observation as an ISO 8601 date and "
+                "time, `YYYY-MM-DDTHH:MM:SS` with an optional fraction of up "
+                "to 6 digits and "
+                "optional `Z` or `±HH:MM` offset (a space may replace the "
+                "`T`); without an offset the time is UTC, such as "
+                "2021-06-15T03:45:00 or 2021-06-15T03:45:00Z"
+            ),
             examples=["2021-06-15T03:45:00"]
-        )
+        ),
+        AfterValidator(_check_iso_datetime),
     ]
     site_lat: Annotated[
         float,
@@ -335,7 +467,8 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             description="Latitude of the observing site",
             json_schema_extra=dict(unit="degree"),
             examples=[-41.56896]
-        )
+        ),
+        _NUMBER_ONLY,
     ]
     site_lon: Annotated[
         float,
@@ -346,7 +479,8 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             description="Longitude of the observing site",
             json_schema_extra=dict(unit="degree"),
             examples=[-71.23841]
-        )
+        ),
+        _NUMBER_ONLY,
     ]
     site_elev: Annotated[
         float,
@@ -355,14 +489,16 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             description="Observer's elevation above mean sea level",
             json_schema_extra=dict(unit="meter"),
             examples=[211.0]
-        )
+        ),
+        _NUMBER_ONLY,
     ]
     observer: Annotated[
         str,
         Field(
             max_length=7,
+            pattern=r"^[A-Z]{2,7}$",
             title="Observer Code",
-            description="AAVSO code of the observer",
+            description="AAVSO observer code: 2 to 7 uppercase letters, as issued by AAVSO",
             json_schema_extra=dict(unit="none"),
             examples=["MMU"]
         )
@@ -394,12 +530,13 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             description="Effective duration of exposure",
             json_schema_extra=dict(unit="second"),
             examples=[30.0]
-        )
+        ),
+        _NUMBER_ONLY,
     ]
     tel_manufac: Annotated[
         str,
         Field(
-            max_length=63,
+            max_length=31,
             title="Telescope Manufacturer",
             description="Name of the telescope manufacturer",
             json_schema_extra=dict(unit="none"),
@@ -410,26 +547,31 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
         int,
         Field(
             gt=0,
+            le=32767,
             title="Image Width",
             description="Width of the image in pixels",
             json_schema_extra=dict(unit="pixel"),
             examples=[2048]
-        )
+        ),
+        _NUMBER_ONLY,
     ]
     height: Annotated[
         int,
         Field(
             gt=0,
+            le=32767,
             title="Image Height",
             description="Height of the image in pixels",
             json_schema_extra=dict(unit="pixel"),
             examples=[1024]
-        )
+        ),
+        _NUMBER_ONLY,
     ]
     stack: Annotated[
         int | None,
         Field(
             ge=1,
+            le=32767,
             title="Number of images",
             description=(
                 "Number of images stacked to create this image, 1 or more. "
@@ -437,12 +579,13 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             ),
             json_schema_extra=dict(unit="none"),
             examples=[3]
-        )
+        ),
+        _NUMBER_ONLY,
     ] = None
     tel_model: Annotated[
         str,
         Field(
-            max_length=63,
+            max_length=31,
             title="Telescope Model",
             description="Model of the telescope",
             json_schema_extra=dict(unit="none"),
@@ -463,21 +606,25 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
         int,
         Field(
             ge=0,
+            le=64,
             title="A/D Converter Bit Depth",
             description="Bit depth of the analog-to-digital converter",
             json_schema_extra=dict(unit="bit"),
             examples=[14]
-        )
+        ),
+        _NUMBER_ONLY,
     ]
     largest_usable_adu_value: Annotated[
         int,
         Field(
             ge=0,
+            le=2_147_483_647,
             title="Largest Usable ADU Value",
             description="Largest usable analog-to-digital unit value",
             json_schema_extra=dict(unit="adu"),
             examples=[41000]
-        )
+        ),
+        _NUMBER_ONLY,
     ]
     egain: Annotated[
         float,
@@ -487,7 +634,8 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             description="Gain of the camera in e-/adu",
             json_schema_extra=dict(unit="e-/adu"),
             examples=[1.2]
-        )
+        ),
+        _NUMBER_ONLY,
     ]
     bias: Annotated[
         float | None,
@@ -510,7 +658,8 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             ),
             json_schema_extra=dict(unit="adu"),
             examples=[1000.0]
-        )
+        ),
+        _NUMBER_ONLY,
     ] = None
     fwhm: Annotated[
         float,
@@ -520,7 +669,8 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             description="Typical full width at half maximum of the stars in this image",
             json_schema_extra=dict(unit="pixel"),
             examples=[3.5]
-        )
+        ),
+        _NUMBER_ONLY,
     ]
     refframe: Annotated[
         str,
@@ -537,11 +687,13 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
         Field(
             fail_fast=True,
             min_length=1,
+            max_length=100,
             title="Photometry Software",
             description=(
                 "Software used to produce this photometry, one entry per "
                 "package, each written as `<name> <version>`. Files upgraded "
-                "from a schema version before 0.3.0 carry `[\"unknown\"]`."
+                "from a schema version before 0.3.0 carry `[\"unknown\"]`; "
+                "at most 100 entries, a sanity ceiling."
             ),
             json_schema_extra=dict(unit="none"),
             examples=[["bandaid 1.2.3", "browser-photometry 4.5.6"]]
@@ -558,7 +710,8 @@ class StarList(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin):
             ),
             json_schema_extra=dict(unit="none"),
             examples=[1823.0]
-        )
+        ),
+        _NUMBER_ONLY,
     ] = None
     staritems: Annotated[
         list[StarItem],
@@ -948,12 +1101,12 @@ _0_4_MAX_STARITEMS = 100_000
 
 def _as_number(value):
     """
-    Read a value the way the frozen 0.3 models read a number.
+    Read a value the way the frozen 0.3 and 0.4 models read a number.
 
     Parameters
     ----------
     value : object
-        A value from a 0.3 file, under a key of a numeric field.
+        A value from a 0.3 or 0.4 file, under a key of a numeric field.
 
     Returns
     -------
@@ -975,7 +1128,7 @@ def _as_number(value):
 
 def _keep_defined(record, model):
     """
-    Keep only the keys of a record that a frozen 0.3 model defines.
+    Keep only the keys of a record that a frozen 0.3 or 0.4 model defines.
 
     Parameters
     ----------
@@ -985,15 +1138,16 @@ def _keep_defined(record, model):
         called directly it may also be another mapping or a model instance,
         which are converted to a dict, or anything else.
     model : type
-        The frozen 0.3 model of ``record``: ``StarListSet``, ``StarList`` or
-        ``StarItem`` of `_aavso_starlist_v0_3`.
+        The frozen model of ``record``: ``StarListSet``, ``StarList`` or
+        ``StarItem`` of `_aavso_starlist_v0_3` or `_aavso_starlist_v0_4`.
 
     Returns
     -------
     dict or object
         A new dict of the keys of ``record`` that are fields of ``model``, in
         their original order. The 0.3 models ignored any other key, so
-        dropping it loses nothing a 0.3 file meant. Anything that is neither
+        dropping it loses nothing a 0.3 file meant; the 0.4 models forbid
+        any other key, so a 0.4 file holds none. Anything that is neither
         a mapping nor a model is returned unchanged, for validation to
         reject.
     """
@@ -1191,6 +1345,269 @@ def _migrate_0_3_to_0_4(data):
     return data
 
 
+# What schema version 1.0.0 forbids that 0.4 allowed, as literals: this migration
+# is frozen once released, so it must not read these from the live models.
+_0_4_STAR_LIST_FLOATS = (
+    "site_lat", "site_lon", "site_elev", "exposure", "egain", "bias", "fwhm", "absolute_focus",
+)
+_0_4_STAR_LIST_INTS = ("width", "height", "stack", "adc_depth", "largest_usable_adu_value")
+_0_4_STAR_ITEM_FLOATS = (
+    "x", "y", "ra", "dec", "tot_count", "count_err", "bkgd_count", "peak_count", "fwhm",
+)
+_1_CANNOT_UPGRADE = "schema version 1.0.0 {rule}, so this file cannot be upgraded to it"
+_1_OBSERVER = re.compile(r"[A-Za-z]{2,7}")
+_1_MAX_STRING_LENGTHS = {"tel_manufac": 31, "tel_model": 31}
+_1_INT_MAXIMA = {
+    "width": 32767, "height": 32767, "stack": 32767, "adc_depth": 64,
+    "largest_usable_adu_value": 2_147_483_647,
+}
+_1_MAX_STAR_LISTS = 1000
+_1_MAX_PHOTOMETRY_SOFTWARE = 100
+# The numpy dtype kinds (bool, str, bytes, void) of a numpy wrapper of a
+# value 1.0.0 refuses in a numeric field.
+_1_REPAIRED_DTYPE_KINDS = "bUSV"
+_1_OBS_TIME = re.compile(
+    r"[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])"
+    r"[T ]([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]"
+    r"(\.[0-9]{1,6})?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])?"
+)
+
+
+def _1_is_iso_datetime(value):
+    """
+    Tell whether a string is an ``obs_time`` 1.0.0 accepts, by its rule.
+
+    This is the 1.0.0 rule for ``obs_time`` as released (the field's
+    pattern and `_check_iso_datetime`), frozen with the migration like the
+    limits above: it is never edited, even if the live check changes.
+    ``fromisoformat`` can change between Python versions, which only affects
+    the calendar check (such as February 30), not the form.
+
+    Parameters
+    ----------
+    value : str
+        The ``obs_time`` of a star list from a 0.4 file.
+
+    Returns
+    -------
+    bool
+        True if the whole of ``value`` matches `_1_OBS_TIME` and
+        ``datetime.datetime.fromisoformat`` reads it; False otherwise, for
+        instance for a date alone, a lowercase ``t`` or month 13.
+    """
+    if _1_OBS_TIME.fullmatch(value) is None:
+        return False
+    try:
+        datetime.datetime.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+# Read a number in lax mode, as the frozen 0.4 models read a bool or a string
+# in a numeric field.
+_LAX_FLOAT = TypeAdapter(float)
+_LAX_INT = TypeAdapter(int)
+
+
+def _repair_numbers(record, float_fields, int_fields=()):
+    """
+    Turn a bool, string or bytes in a numeric field into the number 0.4 read.
+
+    The 0.4 models read numbers in pydantic's lax mode, so a file could hold
+    ``true`` or ``"1000"`` in a numeric field and be valid; 1.0.0 refuses
+    both, as JSON Schema does. The number the 0.4 reader produced is the
+    honest reading of such a value. Exactly what `_reject_bool_and_str`
+    refuses is repaired: a bool, a str or bytes, or a numpy wrapper of one
+    (a numpy scalar or a zero-dimensional array of dtype kind ``b``, ``U``,
+    ``S`` or ``V``), which is unwrapped first. A string lax mode cannot
+    read as an int, such as ``"5E+1"`` (what a ``Decimal`` with an exponent,
+    which the 0.4 models read as 50, becomes in plain data), is read as a
+    ``Decimal`` and then as the number.
+
+    Parameters
+    ----------
+    record : dict
+        A star list or star item from a 0.4 file, modified in place.
+    float_fields : tuple of str
+        The names of the float fields of ``record``'s 0.4 model.
+    int_fields : tuple of str, optional
+        The names of its int fields. Default ``()``: none.
+
+    Notes
+    -----
+    Through the model every such value can be read, since the frozen 0.4
+    model has already accepted it. From `upgrade` called directly, a value
+    lax mode cannot read as a number (``"high"``, say) is left as given, for
+    validation to reject.
+    """
+    for names, adapter in ((float_fields, _LAX_FLOAT), (int_fields, _LAX_INT)):
+        for name in names:
+            value = record.get(name)
+            if (
+                isinstance(value, (np.generic, np.ndarray))
+                and np.ndim(value) == 0
+                and value.dtype.kind in _1_REPAIRED_DTYPE_KINDS
+            ):
+                value = value.item()
+            if not isinstance(value, (bool, str, bytes, bytearray)):
+                continue
+            try:
+                record[name] = adapter.validate_python(value)
+            except ValidationError:
+                if isinstance(value, str):
+                    try:
+                        record[name] = adapter.validate_python(decimal.Decimal(value))
+                    except (decimal.InvalidOperation, ValidationError):
+                        pass
+
+
+def _refuse_over_limit(path, count, limit, unit):
+    """
+    Refuse a value that is over a limit of 1.0.0.
+
+    Parameters
+    ----------
+    path : str
+        Where the value is in the file, such as ``star_lists[0].tel_model``,
+        for the error message.
+    count : int
+        How long or how many the value is.
+    limit : int
+        The most 1.0.0 allows.
+    unit : str
+        What ``count`` counts, such as ``characters`` or ``entries``.
+
+    Raises
+    ------
+    ValueError
+        If ``count`` is over ``limit``; the message names ``path``.
+    """
+    if count > limit:
+        raise ValueError(
+            f"{path} has {count} {unit}; "
+            + _1_CANNOT_UPGRADE.format(rule=f"allows at most {limit}")
+        )
+
+
+def _star_list_1(star_list, path):
+    """
+    Migrate one star list of a 0.4 file to schema version 1.0.0.
+
+    Parameters
+    ----------
+    star_list : object
+        One entry of ``star_lists``; see `_keep_defined` for what it may be.
+    path : str
+        Where ``star_list`` is in the file, such as ``star_lists[0]``, for the
+        error message.
+
+    Returns
+    -------
+    dict or object
+        ``star_list`` as a dict with its observer code uppercased, a bool,
+        string or bytes (or a numpy wrapper of one) in a numeric field of it
+        or of one of its star items replaced by the number the 0.4 reader read it as (see `_repair_numbers`), and
+        ``staritems`` a list; or ``star_list`` unchanged if it is neither a
+        mapping nor a model.
+
+    Raises
+    ------
+    ValueError
+        If the observer code is not 2 to 7 letters, ``obs_time`` is not of
+        the 1.0.0 form or not a real date and time, ``tel_manufac`` or ``tel_model`` is longer
+        than 31 characters, an integer field is over its 1.0.0 maximum, or
+        ``photometry_software`` has more than 100 entries.
+    """
+    star_list = _keep_defined(star_list, _aavso_starlist_v0_4.StarList)
+    if not isinstance(star_list, dict):
+        return star_list
+    _repair_numbers(star_list, _0_4_STAR_LIST_FLOATS, _0_4_STAR_LIST_INTS)
+    observer = star_list.get("observer")
+    if isinstance(observer, str):
+        # AAVSO issues observer codes in uppercase; the letters are the code.
+        if not _1_OBSERVER.fullmatch(observer):
+            raise ValueError(
+                f"{path}.observer is {observer!r}; "
+                + _1_CANNOT_UPGRADE.format(rule="requires an observer code of 2 to 7 letters")
+            )
+        star_list["observer"] = observer.upper()
+    obs_time = star_list.get("obs_time")
+    if isinstance(obs_time, str) and not _1_is_iso_datetime(obs_time):
+        raise ValueError(
+            f"{path}.obs_time is {obs_time!r}; "
+            + _1_CANNOT_UPGRADE.format(
+                rule="requires obs_time of the form YYYY-MM-DDTHH:MM:SS[.ffffff][Z|±HH:MM]"
+            )
+        )
+    for name, limit in _1_MAX_STRING_LENGTHS.items():
+        value = star_list.get(name)
+        if isinstance(value, str):
+            _refuse_over_limit(f"{path}.{name}", len(value), limit, "characters")
+    for name, limit in _1_INT_MAXIMA.items():
+        # _repair_numbers has already read "70000" as 70000; _as_number also
+        # reads numbers upgrade() called directly may pass, such as numpy
+        # integers or ints too large for a float.
+        number = _as_number(star_list.get(name))
+        if number is not None and number > limit:
+            raise ValueError(
+                f"{path}.{name} is {star_list[name]!r}; "
+                + _1_CANNOT_UPGRADE.format(rule=f"allows at most {limit}")
+            )
+    software = star_list.get("photometry_software")
+    if isinstance(software, (list, tuple)):
+        _refuse_over_limit(
+            f"{path}.photometry_software", len(software), _1_MAX_PHOTOMETRY_SOFTWARE, "entries"
+        )
+    items = star_list.get("staritems")
+    if isinstance(items, (list, tuple)):
+        items = [_keep_defined(item, _aavso_starlist_v0_4.StarItem) for item in items]
+        for item in items:
+            if isinstance(item, dict):
+                _repair_numbers(item, _0_4_STAR_ITEM_FLOATS)
+        star_list["staritems"] = items
+    return star_list
+
+
+def _migrate_0_4_to_1(data):
+    """
+    Migrate a 0.4 starlist set to schema version 1.0.0.
+
+    Parameters
+    ----------
+    data : dict
+        Raw starlist-set data from a 0.4 file. `upgrade` passes a copy, so it
+        is modified in place.
+
+    Returns
+    -------
+    dict
+        ``data`` with each star list migrated by `_star_list_1`: observer
+        codes uppercased and a bool, string or bytes (or a numpy wrapper of
+        one) in a numeric field replaced by the number the 0.4 reader read
+        it as. ``star_lists`` becomes a list.
+        A tuple of star lists or star items, which only `upgrade` called
+        directly can pass, is handled too.
+
+    Raises
+    ------
+    ValueError
+        If the file has more than 1000 star lists, or a star list has a value
+        1.0.0 cannot hold (see `_star_list_1`). Through `StarListSet`
+        pydantic reports it as a ``ValidationError`` (type ``value_error``);
+        from `upgrade` it is raised as is. Such a file is valid for 0.4 but
+        has no honest 1.0.0 form.
+    """
+    star_lists = data.get("star_lists")
+    if isinstance(star_lists, (list, tuple)):
+        _refuse_over_limit("star_lists", len(star_lists), _1_MAX_STAR_LISTS, "entries")
+        data["star_lists"] = [
+            _star_list_1(star_list, f"star_lists[{index}]")
+            for index, star_list in enumerate(star_lists)
+        ]
+    return data
+
+
 # Keyed by the generation a file is in; the value takes it to the next generation.
 # Each breaking change adds an entry here, keyed by the generation being left,
 # with a frozen copy of that generation's models in its own _aavso_starlist_*.py.
@@ -1212,6 +1629,12 @@ _MIGRATIONS = {
         "0.4.0",
         _migrate_0_3_to_0_4,
         "keys the 0.3 schema does not define were dropped and a stack below 1 became null",
+    ),
+    "0.4": _Migration(
+        _aavso_starlist_v0_4.StarListSet,
+        "1.0.0",
+        _migrate_0_4_to_1,
+        "observer codes were uppercased and numbers given as strings or booleans became numbers",
     ),
 }
 
@@ -1344,10 +1767,14 @@ def validate_as_written(data):
     current model and, like any `StarListSet`, states `SCHEMA_VERSION`, even
     if the file stated an older version of the generation.
 
-    It does not apply anything a later version added: a 0.3.x file may hold
-    infinity or NaN, strings of any length, more than 100000 star items or a
-    ``stack`` of 0, and ``model_dump(mode="json")`` of the result emits them
-    as they are. To hold every file to the current schema, read it with
+    It does not apply anything a later version added: for instance a 0.3.x
+    file may hold infinity or NaN, strings of any length, more than 100000
+    star items or a ``stack`` of 0, and a 0.4.x file an observer code that
+    is not 2 to 7 uppercase letters, an ``obs_time`` not of the 1.0.0 form,
+    or a value over a 1.0.0 limit, which ``model_dump(mode="json")`` of the
+    result emits as they are. A boolean or numeric string in a numeric field
+    is also accepted, but comes back as the number the 0.4 model read it as.
+    To hold every file to the current schema, read it with
     ``StarListSet.model_validate`` or `validate_file`, which upgrade it.
 
     A legacy file without a ``schema_version`` comes back with the legacy
@@ -1715,8 +2142,9 @@ class StarListSet(BaseModel, PrettyPrintMixin, GenerateInstanceFromExamplesMixin
         list[StarList],
         Field(
             fail_fast=True,
+            max_length=1000,
             title="Star List Set",
-            description="List of star lists",
+            description="List of star lists; at most 1000, a sanity ceiling.",
             json_schema_extra=dict(unit="none"),
             examples=[[]]
         )

@@ -2,8 +2,8 @@
 
 | Title | JSON Field | Type | Unit | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
-| Starlist Schema Version | schema_version | str | none | The version of this schema that the file was written against, assigned by AAVSO | "0.4.1" |
-| Star List Set | star_lists | list[StarList] | none | List of star lists | [] |
+| Starlist Schema Version | schema_version | str | none | The version of this schema that the file was written against, assigned by AAVSO | "1.0.0" |
+| Star List Set | star_lists | list[StarList] | none | List of star lists; at most 1000, a sanity ceiling. | [] |
 
 
 
@@ -13,11 +13,11 @@
 
 | Title | JSON Field | Type | Unit | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
-| Observation Start Time | obs_time | str | None | UTC time at start of observation | "2021-06-15T03:45:00" |
+| Observation Start Time | obs_time | str | None | UTC time at start of observation as an ISO 8601 date and time, `YYYY-MM-DDTHH:MM:SS` with an optional fraction of up to 6 digits and optional `Z` or `±HH:MM` offset (a space may replace the `T`); without an offset the time is UTC, such as 2021-06-15T03:45:00 or 2021-06-15T03:45:00Z | "2021-06-15T03:45:00" |
 | Site Latitude | site_lat | float | degree | Latitude of the observing site | -41.56896 |
 | Site Longitude | site_lon | float | degree | Longitude of the observing site | -71.23841 |
 | Site Elevation | site_elev | float | meter | Observer's elevation above mean sea level | 211.0 |
-| Observer Code | observer | str | none | AAVSO code of the observer | "MMU" |
+| Observer Code | observer | str | none | AAVSO observer code: 2 to 7 uppercase letters, as issued by AAVSO | "MMU" |
 | Filter | filter | AAVSOFilters | none | Filter used for the observation, from https://www.aavso.org/filters | "TG" |
 | Blocking Filter | block_filter | str | none | Name of blocking filter used on telescope | "UV+IR" |
 | Exposure Time | exposure | float | second | Effective duration of exposure | 30.0 |
@@ -33,7 +33,7 @@
 | Bias Level | bias | float \| None | adu | Bias (offset) level of this frame in adu: the value `bkgd_count` would hold with no photon arrivals and no dark current, in the pixel values the counts in this star list were measured from. For a frame the vendor has dark-subtracted and then offset to keep pixel values positive, this is that fixed offset. For a raw frame with no dark, flat or bias correction, it is the mean level of a bias frame. It is 0 if the bias or offset has already been subtracted from the pixel values. For a star list measured on a stacked image it is the level in that image: the sum of the per-frame offsets for a summed stack, the per-frame offset for a mean or median stack. None if not available. | 1000.0 |
 | Typical FWHM | fwhm | float | pixel | Typical full width at half maximum of the stars in this image | 3.5 |
 | Coordinate Reference Frame | refframe | str | none | Reference frame of the observation | "ICRS" |
-| Photometry Software | photometry_software | list[str] | none | Software used to produce this photometry, one entry per package, each written as `<name> <version>`. Files upgraded from a schema version before 0.3.0 carry `["unknown"]`. | ["bandaid 1.2.3", "browser-photometry 4.5.6"] |
+| Photometry Software | photometry_software | list[str] | none | Software used to produce this photometry, one entry per package, each written as `<name> <version>`. Files upgraded from a schema version before 0.3.0 carry `["unknown"]`; at most 100 entries, a sanity ceiling. | ["bandaid 1.2.3", "browser-photometry 4.5.6"] |
 | Absolute Focus Position | absolute_focus | float \| None | none | Absolute focus position of the telescope, in the focuser's native units (typically motor steps), comparable only between images from the same telescope model. None if not available. | 1823.0 |
 | Star Items | staritems | list[StarItem] | none | List of stars detected in the image | [] |
 

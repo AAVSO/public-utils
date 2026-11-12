@@ -33,6 +33,28 @@ def float_fields(model):
     )
 
 
+def int_fields(model):
+    """
+    Name the fields of a model whose type is int, optional or not.
+
+    Parameters
+    ----------
+    model : type
+        A pydantic model class.
+
+    Returns
+    -------
+    tuple of str
+        The names of the fields typed ``int`` or ``int | None``, in the
+        order the model defines them.
+    """
+    return tuple(
+        name
+        for name, field in model.model_fields.items()
+        if _type_name(field.annotation) in ("int", "int | None")
+    )
+
+
 def flooded(data, path, entry, count):
     """
     Copy starlist-set data with one list field holding many copies of an entry.
